@@ -588,8 +588,12 @@ final class AppModel {
             primaryAlias: primaryHost?.alias,
             selectedHosts: selectedHosts.map { host in
                 let state = statusState(for: host)
+                let displayName: String? = host.kind == .local
+                    ? (Host.current().localizedName ?? ProcessInfo.processInfo.hostName)
+                    : nil
                 return WidgetHostSnapshot(
                     alias: host.alias,
+                    displayName: displayName,
                     endpointDescription: host.endpointDescription,
                     cpuUsagePercent: state.status?.cpuUsagePercent,
                     memoryUsagePercent: state.status?.memoryUsagePercent,

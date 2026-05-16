@@ -35,6 +35,7 @@ public struct WidgetSnapshot: Codable, Equatable {
 
 public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
     public let alias: String
+    public let displayName: String?
     public let endpointDescription: String
     public let cpuUsagePercent: Double?
     public let memoryUsagePercent: Double?
@@ -47,6 +48,7 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
 
     public init(
         alias: String,
+        displayName: String? = nil,
         endpointDescription: String,
         cpuUsagePercent: Double?,
         memoryUsagePercent: Double?,
@@ -58,6 +60,7 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         errorMessage: String?
     ) {
         self.alias = alias
+        self.displayName = displayName
         self.endpointDescription = endpointDescription
         self.cpuUsagePercent = cpuUsagePercent
         self.memoryUsagePercent = memoryUsagePercent
@@ -70,6 +73,17 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
     }
 
     public var id: String { alias }
+
+    /// The name to show in the widget header. Falls back to alias if no displayName is set.
+    public var widgetTitle: String {
+        if let displayName, !displayName.isEmpty {
+            return displayName
+        }
+        if alias.hasPrefix("__") && alias.hasSuffix("__") {
+            return "This Mac"
+        }
+        return alias
+    }
 
     public var cpuUsageText: String {
         metricText(cpuUsagePercent)
@@ -84,6 +98,12 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         return loadAverages.prefix(3)
             .map { String(format: "%.2f", $0) }
             .joined(separator: "  ")
+    }
+
+    /// Shorter load average for widget detail blocks (1-min only).
+    public var loadAverageShort: String {
+        guard let first = loadAverages.first else { return "--" }
+        return String(format: "%.2f", first)
     }
 
     public var uptimeText: String {
@@ -214,19 +234,11 @@ public enum WidgetSnapshotStore {
     }()
 
     private static var sharedDefaults: UserDefaults? {
-        guard !isWidgetExtension else {
-            return nil
-        }
-
-        return UserDefaults(suiteName: appGroupIdentifier)
+        UserDefaults(suiteName: appGroupIdentifier)
     }
 
     private static var legacySharedDefaults: UserDefaults? {
-        guard !isWidgetExtension else {
-            return nil
-        }
-
-        return UserDefaults(suiteName: legacyAppGroupIdentifier)
+        UserDefaults(suiteName: legacyAppGroupIdentifier)
     }
 
     private static func decodeSnapshot(from data: Data) throws -> WidgetSnapshot {
@@ -257,16 +269,47 @@ public enum WidgetSnapshotStore {
         }
 
         urls.append(legacySnapshotURL)
+        urls.append(contentsOf: widgetSandboxSnapshotURLs)
 
         return uniqueURLs(urls)
     }
 
     private static var readSnapshotURLs: [URL] {
         if isWidgetExtension {
-            return writeSnapshotURLs
+            return uniqueURLs(widgetLocalSnapshotURLs + appGroupSnapshotURLs(for: appGroupIdentifier))
         }
 
         return uniqueURLs(writeSnapshotURLs + legacyCandidateSnapshotURLs)
+    }
+
+    /// Paths inside the widget extension's sandbox container, writable by the unsandboxed main app.
+    private static var widgetSandboxSnapshotURLs: [URL] {
+        let containerPath = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Containers", directoryHint: .isDirectory)
+            .appending(path: ComputerBarWidgetConstants.widgetBundleIdentifier, directoryHint: .isDirectory)
+            .appending(path: "Data", directoryHint: .isDirectory)
+
+        return [
+            containerPath
+                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
+            containerPath
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+        ]
+    }
+
+    /// Paths the widget extension can read from within its own sandbox.
+    private static var widgetLocalSnapshotURLs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home
+                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
+            home
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+        ]
     }
 
     private static var legacyCandidateSnapshotURLs: [URL] {
