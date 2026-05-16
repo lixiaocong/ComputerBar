@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 #if canImport(ComputerBarShared)
@@ -24,28 +25,123 @@ private final class WidgetSnapshotBox: @unchecked Sendable {
 struct ComputerBarWidgetEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
+    let selectedAlias: String?
 }
 
-struct ComputerBarWidgetProvider: TimelineProvider {
+struct ComputerBarHostSelection: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Host")
+    static let defaultQuery = ComputerBarHostSelectionQuery()
+
+    let id: String
+    let title: String
+    let subtitle: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(title)",
+            subtitle: "\(subtitle)"
+        )
+    }
+}
+
+struct ComputerBarHostSelectionQuery: EntityQuery {
+    func entities(for identifiers: [ComputerBarHostSelection.ID]) async throws -> [ComputerBarHostSelection] {
+        let selections = Self.availableSelections()
+        return identifiers.map { identifier in
+            selections.first { $0.id == identifier } ?? ComputerBarHostSelection(
+                id: identifier,
+                title: identifier,
+                subtitle: "Unavailable host"
+            )
+        }
+    }
+
+    func suggestedEntities() async throws -> [ComputerBarHostSelection] {
+        Self.availableSelections()
+    }
+
+    func defaultResult() async -> ComputerBarHostSelection? {
+        Self.availableSelections().first
+    }
+
+    private static func availableSelections() -> [ComputerBarHostSelection] {
+        WidgetSnapshotStore.loadIfAvailable()?.selectedHosts.map(selection) ?? []
+    }
+
+    private static func selection(for host: WidgetHostSnapshot) -> ComputerBarHostSelection {
+        let subtitle: String
+        if host.errorMessage != nil {
+            subtitle = "Error"
+        } else if host.hasMetrics {
+            subtitle = "CPU \(host.cpuUsageText), memory \(host.memoryUsageText)"
+        } else {
+            subtitle = host.endpointDescription
+        }
+
+        return ComputerBarHostSelection(
+            id: host.alias,
+            title: host.alias,
+            subtitle: subtitle
+        )
+    }
+}
+
+struct ComputerBarWidgetConfigurationIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Computer Bar"
+    static let description = IntentDescription("Shows one monitored computer on the desktop.")
+
+    @Parameter(title: "Host", description: "The ComputerBar host to show in this widget.")
+    var host: ComputerBarHostSelection?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Show \(\.$host)")
+    }
+}
+
+struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
+    typealias Intent = ComputerBarWidgetConfigurationIntent
+
     private static let missingSnapshotRetryInterval: TimeInterval = 5
     private static let normalRefreshInterval: TimeInterval = 60
 
     func placeholder(in context: Context) -> ComputerBarWidgetEntry {
-        ComputerBarWidgetEntry(date: .now, snapshot: placeholderSnapshot)
+        ComputerBarWidgetEntry(
+            date: .now,
+            snapshot: placeholderSnapshot,
+            selectedAlias: placeholderSnapshot.selectedHosts.first?.alias
+        )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (ComputerBarWidgetEntry) -> Void) {
+    func snapshot(
+        for configuration: ComputerBarWidgetConfigurationIntent,
+        in context: Context
+    ) async -> ComputerBarWidgetEntry {
+        if context.isPreview {
+            return placeholder(in: context)
+        }
+
         let snapshot = loadSnapshot() ?? placeholderSnapshot
-        completion(ComputerBarWidgetEntry(date: .now, snapshot: snapshot))
+        return ComputerBarWidgetEntry(
+            date: .now,
+            snapshot: snapshot,
+            selectedAlias: configuration.host?.id
+        )
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<ComputerBarWidgetEntry>) -> Void) {
+    func timeline(
+        for configuration: ComputerBarWidgetConfigurationIntent,
+        in context: Context
+    ) async -> Timeline<ComputerBarWidgetEntry> {
         let snapshot = loadSnapshot()
-        let entry = ComputerBarWidgetEntry(date: .now, snapshot: snapshot)
+        let entry = ComputerBarWidgetEntry(
+            date: .now,
+            snapshot: snapshot,
+            selectedAlias: configuration.host?.id
+        )
         let nextReload = Date().addingTimeInterval(
             snapshot == nil ? Self.missingSnapshotRetryInterval : Self.normalRefreshInterval
         )
-        completion(Timeline(entries: [entry], policy: .after(nextReload)))
+        return Timeline(entries: [entry], policy: .after(nextReload))
     }
 
     private var placeholderSnapshot: WidgetSnapshot {
@@ -136,12 +232,16 @@ struct ComputerBarStatusWidget: Widget {
     let kind = ComputerBarWidgetConstants.statusWidgetKind
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: ComputerBarWidgetProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: ComputerBarWidgetConfigurationIntent.self,
+            provider: ComputerBarWidgetProvider()
+        ) { entry in
             ComputerBarWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Computer Bar")
-        .description("Shows the latest CPU, memory, and disk status from your monitored hosts.")
-        .supportedFamilies([.systemLarge])
+        .description("Shows the latest status for one monitored computer.")
+        .supportedFamilies([.systemMedium])
         .contentMarginsDisabled()
     }
 }
@@ -174,14 +274,51 @@ struct ComputerBarWidgetEntryView: View {
     private func content(_ snapshot: WidgetSnapshot) -> some View {
         if let configErrorMessage = snapshot.configErrorMessage {
             emptyState(title: "SSH Config Problem", message: configErrorMessage)
-        } else if snapshot.selectedHosts.isEmpty {
+        } else if let host = selectedHost(in: snapshot) {
+            mediumHostView(host, snapshot: snapshot)
+        } else if entry.selectedAlias != nil {
+            emptyState(
+                title: "Host Not Found",
+                message: "Edit the widget and choose a ComputerBar host that is still available."
+            )
+        } else {
             emptyState(
                 title: "No Hosts Selected",
                 message: "Choose local or SSH hosts in Computer Bar settings to populate this widget."
             )
-        } else {
-            largeView(snapshot)
         }
+    }
+
+    private func mediumHostView(_ host: WidgetHostSnapshot, snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            summaryHeader(
+                alias: host.alias,
+                supportingText: host.endpointDescription,
+                refreshText: snapshot.lastRefreshAt?.formatted(date: .omitted, time: .shortened)
+            )
+
+            if let errorMessage = host.errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 10) {
+                    metricCard(title: "CPU", value: host.cpuUsagePercent, text: host.cpuUsageText, tint: .cyan)
+                    metricCard(title: "Mem", value: host.memoryUsagePercent, text: host.memoryUsageText, tint: .green)
+                }
+
+                HStack(spacing: 8) {
+                    detailPill(label: "Load", value: host.loadAverageText)
+                    detailPill(label: "Uptime", value: host.uptimeText)
+                    detailPill(label: "Updated", value: host.updatedAtText)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -450,6 +587,15 @@ struct ComputerBarWidgetEntryView: View {
         }
 
         return snapshot.selectedHosts.first
+    }
+
+    private func selectedHost(in snapshot: WidgetSnapshot) -> WidgetHostSnapshot? {
+        if let selectedAlias = entry.selectedAlias,
+           let host = snapshot.selectedHosts.first(where: { $0.alias == selectedAlias }) {
+            return host
+        }
+
+        return primaryHost(in: snapshot)
     }
 
     private var widgetBackground: some View {
