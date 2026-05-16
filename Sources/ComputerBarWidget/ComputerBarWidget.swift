@@ -5,23 +5,6 @@ import WidgetKit
 import ComputerBarShared
 #endif
 
-private final class WidgetSnapshotBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var snapshot: WidgetSnapshot?
-
-    func set(_ snapshot: WidgetSnapshot?) {
-        lock.lock()
-        self.snapshot = snapshot
-        lock.unlock()
-    }
-
-    func get() -> WidgetSnapshot? {
-        lock.lock()
-        defer { lock.unlock() }
-        return snapshot
-    }
-}
-
 struct ComputerBarWidgetEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
@@ -180,51 +163,7 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
     }
 
     private func loadSnapshot() -> WidgetSnapshot? {
-        if let storedSnapshot = WidgetSnapshotStore.loadIfAvailable() {
-            return storedSnapshot
-        }
-
-        return fetchLiveSnapshot()
-    }
-
-    private func fetchLiveSnapshot() -> WidgetSnapshot? {
-        guard let url = URL(
-            string: "http://127.0.0.1:\(ComputerBarWidgetConstants.localSnapshotServerPort)\(ComputerBarWidgetConstants.localSnapshotServerPath)"
-        ) else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 1
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 1
-        configuration.timeoutIntervalForResource = 1
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let snapshotBox = WidgetSnapshotBox()
-
-        let task = URLSession(configuration: configuration).dataTask(with: request) { data, response, _ in
-            defer { semaphore.signal() }
-
-            guard
-                let data,
-                let httpResponse = response as? HTTPURLResponse,
-                httpResponse.statusCode == 200
-            else {
-                return
-            }
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            snapshotBox.set(try? decoder.decode(WidgetSnapshot.self, from: data))
-        }
-
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 1.2)
-        task.cancel()
-        return snapshotBox.get()
+        WidgetSnapshotStore.loadIfAvailable()
     }
 }
 
@@ -241,7 +180,7 @@ struct ComputerBarStatusWidget: Widget {
         }
         .configurationDisplayName("Computer Bar")
         .description("Shows the latest status for one monitored computer.")
-        .supportedFamilies([.systemMedium])
+        .supportedFamilies([.systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
 }

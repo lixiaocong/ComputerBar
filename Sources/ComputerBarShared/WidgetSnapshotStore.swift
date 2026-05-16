@@ -114,12 +114,10 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
 public enum WidgetSnapshotStore {
     public static let appGroupIdentifier = "group.com.computerbar.shared"
     private static let legacyAppGroupIdentifier = "group.com.sshbar.shared"
-    private static let legacyAppBundleIdentifier = "com.sshbar.app"
-    private static let legacyWidgetBundleIdentifier = "com.sshbar.app.widget"
     private static let legacySnapshotDirectoryName = "SSHBar"
 
     public static var snapshotURL: URL {
-        candidateSnapshotURLs.first ?? legacySnapshotURL
+        writeSnapshotURLs.first ?? legacySnapshotURL
     }
 
     public static func load() throws -> WidgetSnapshot {
@@ -177,7 +175,7 @@ public enum WidgetSnapshotStore {
             savedAtLeastOnce = true
         }
 
-        for url in candidateSnapshotURLs {
+        for url in writeSnapshotURLs {
             do {
                 let directoryURL = url.deletingLastPathComponent()
                 try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -197,7 +195,7 @@ public enum WidgetSnapshotStore {
         let fileManager = FileManager.default
         sharedDefaults?.removeObject(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey)
         sharedDefaults?.synchronize()
-        for url in candidateSnapshotURLs where fileManager.fileExists(atPath: url.path) {
+        for url in writeSnapshotURLs where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
     }
@@ -216,11 +214,19 @@ public enum WidgetSnapshotStore {
     }()
 
     private static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupIdentifier)
+        guard !isWidgetExtension else {
+            return nil
+        }
+
+        return UserDefaults(suiteName: appGroupIdentifier)
     }
 
     private static var legacySharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: legacyAppGroupIdentifier)
+        guard !isWidgetExtension else {
+            return nil
+        }
+
+        return UserDefaults(suiteName: legacyAppGroupIdentifier)
     }
 
     private static func decodeSnapshot(from data: Data) throws -> WidgetSnapshot {
@@ -233,8 +239,14 @@ public enum WidgetSnapshotStore {
         }
     }
 
-    private static var candidateSnapshotURLs: [URL] {
+    private static var writeSnapshotURLs: [URL] {
         var urls: [URL] = []
+
+        urls.append(contentsOf: appGroupSnapshotURLs(for: appGroupIdentifier))
+
+        guard !isWidgetExtension else {
+            return uniqueURLs(urls)
+        }
 
         if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             urls.append(
@@ -244,35 +256,24 @@ public enum WidgetSnapshotStore {
             )
         }
 
-        if let sharedContainerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) {
-            urls.append(
-                sharedContainerURL
-                    .appending(path: "Library/Application Support", directoryHint: .isDirectory)
-                    .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
-                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-            )
-            urls.append(
-                sharedContainerURL
-                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-            )
-        }
-
-        urls.append(contentsOf: deterministicContainerSnapshotURLs(forBundleIdentifier: ComputerBarWidgetConstants.widgetBundleIdentifier))
-        urls.append(contentsOf: deterministicContainerSnapshotURLs(forBundleIdentifier: ComputerBarWidgetConstants.appBundleIdentifier))
         urls.append(legacySnapshotURL)
 
-        var seen = Set<String>()
-        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
+        return uniqueURLs(urls)
     }
 
     private static var readSnapshotURLs: [URL] {
-        var seen = Set<String>()
-        return (candidateSnapshotURLs + legacyCandidateSnapshotURLs).filter {
-            seen.insert($0.standardizedFileURL.path).inserted
+        if isWidgetExtension {
+            return writeSnapshotURLs
         }
+
+        return uniqueURLs(writeSnapshotURLs + legacyCandidateSnapshotURLs)
     }
 
     private static var legacyCandidateSnapshotURLs: [URL] {
+        guard !isWidgetExtension else {
+            return []
+        }
+
         var urls: [URL] = []
 
         if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
@@ -296,16 +297,24 @@ public enum WidgetSnapshotStore {
             )
         }
 
-        urls.append(contentsOf: deterministicContainerSnapshotURLs(
-            forBundleIdentifier: legacyWidgetBundleIdentifier,
-            snapshotDirectoryName: legacySnapshotDirectoryName
-        ))
-        urls.append(contentsOf: deterministicContainerSnapshotURLs(
-            forBundleIdentifier: legacyAppBundleIdentifier,
-            snapshotDirectoryName: legacySnapshotDirectoryName
-        ))
-
         return urls
+    }
+
+    private static func appGroupSnapshotURLs(for appGroupIdentifier: String) -> [URL] {
+        guard let sharedContainerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) else {
+            return []
+        }
+
+        return [
+            sharedContainerURL
+                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
+            sharedContainerURL
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+        ]
     }
 
     private static var legacySnapshotURL: URL {
@@ -315,23 +324,17 @@ public enum WidgetSnapshotStore {
             .appending(path: ComputerBarWidgetConstants.snapshotFilename)
     }
 
-    private static func deterministicContainerSnapshotURLs(
-        forBundleIdentifier bundleIdentifier: String,
-        snapshotDirectoryName: String = ComputerBarWidgetConstants.snapshotDirectoryName
-    ) -> [URL] {
-        let containerRoot = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Containers", directoryHint: .isDirectory)
-            .appending(path: bundleIdentifier, directoryHint: .isDirectory)
-            .appending(path: "Data", directoryHint: .isDirectory)
+    private static var isWidgetExtension: Bool {
+        let mainBundle = Bundle.main
+        return mainBundle.bundleIdentifier == ComputerBarWidgetConstants.widgetBundleIdentifier
+            || mainBundle.bundlePath.hasSuffix(".appex")
+            || mainBundle.infoDictionary?["NSExtension"] != nil
+            || ProcessInfo.processInfo.processName == "ComputerBarWidgetExtension"
+    }
 
-        return [
-            containerRoot
-                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
-                .appending(path: snapshotDirectoryName, directoryHint: .isDirectory)
-                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
-            containerRoot
-                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-        ]
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 }
 
