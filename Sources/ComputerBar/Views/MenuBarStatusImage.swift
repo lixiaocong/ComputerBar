@@ -181,6 +181,13 @@ enum MenuBarStatusImage {
         trackColor(percent: percent, isError: isError).setFill()
         trackPath.fill()
 
+        guard let percent else {
+            if isError {
+                drawUnavailableMarker(in: rect)
+            }
+            return
+        }
+
         let fillFraction = fillFraction(for: percent)
         let fillRect = NSRect(
             x: rect.minX,
@@ -193,8 +200,20 @@ enum MenuBarStatusImage {
         fillPath.fill()
     }
 
-    private static func fillFraction(for percent: Double?) -> CGFloat {
-        guard let percent else { return 0.24 }
+    private static func drawUnavailableMarker(in rect: NSRect) {
+        let markerRect = rect.insetBy(dx: 1.4, dy: max(0.5, rect.height * 0.18))
+        let markerPath = NSBezierPath()
+        markerPath.lineWidth = max(1, min(1.4, rect.height * 0.35))
+        markerPath.lineCapStyle = .round
+        markerPath.move(to: NSPoint(x: markerRect.minX, y: markerRect.minY))
+        markerPath.line(to: NSPoint(x: markerRect.maxX, y: markerRect.maxY))
+        markerPath.move(to: NSPoint(x: markerRect.minX, y: markerRect.maxY))
+        markerPath.line(to: NSPoint(x: markerRect.maxX, y: markerRect.minY))
+        NSColor.systemRed.withAlphaComponent(0.9).setStroke()
+        markerPath.stroke()
+    }
+
+    private static func fillFraction(for percent: Double) -> CGFloat {
         return max(0, min(1, CGFloat(percent / 100)))
     }
 
