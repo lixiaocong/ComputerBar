@@ -1,0 +1,362 @@
+import Foundation
+
+public enum ComputerBarWidgetConstants {
+    public static let appBundleIdentifier = "com.computerbar.app"
+    public static let widgetBundleIdentifier = "com.computerbar.app.widget"
+    public static let statusWidgetKind = "ComputerBarStatusWidget"
+    public static let snapshotFilename = "widget-snapshot.json"
+    public static let snapshotDirectoryName = "ComputerBar"
+    public static let snapshotDefaultsKey = "widgetSnapshotData"
+    public static let localSnapshotServerPort: UInt16 = 61337
+    public static let localSnapshotServerPath = "/widget-snapshot"
+}
+
+public struct WidgetSnapshot: Codable, Equatable {
+    public let generatedAt: Date
+    public let lastRefreshAt: Date?
+    public let primaryAlias: String?
+    public let selectedHosts: [WidgetHostSnapshot]
+    public let configErrorMessage: String?
+
+    public init(
+        generatedAt: Date,
+        lastRefreshAt: Date?,
+        primaryAlias: String?,
+        selectedHosts: [WidgetHostSnapshot],
+        configErrorMessage: String?
+    ) {
+        self.generatedAt = generatedAt
+        self.lastRefreshAt = lastRefreshAt
+        self.primaryAlias = primaryAlias
+        self.selectedHosts = selectedHosts
+        self.configErrorMessage = configErrorMessage
+    }
+}
+
+public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
+    public let alias: String
+    public let endpointDescription: String
+    public let cpuUsagePercent: Double?
+    public let memoryUsagePercent: Double?
+    public let memoryUsedBytes: UInt64?
+    public let memoryTotalBytes: UInt64?
+    public let loadAverages: [Double]
+    public let uptimeSeconds: TimeInterval?
+    public let updatedAt: Date?
+    public let errorMessage: String?
+
+    public init(
+        alias: String,
+        endpointDescription: String,
+        cpuUsagePercent: Double?,
+        memoryUsagePercent: Double?,
+        memoryUsedBytes: UInt64?,
+        memoryTotalBytes: UInt64?,
+        loadAverages: [Double],
+        uptimeSeconds: TimeInterval?,
+        updatedAt: Date?,
+        errorMessage: String?
+    ) {
+        self.alias = alias
+        self.endpointDescription = endpointDescription
+        self.cpuUsagePercent = cpuUsagePercent
+        self.memoryUsagePercent = memoryUsagePercent
+        self.memoryUsedBytes = memoryUsedBytes
+        self.memoryTotalBytes = memoryTotalBytes
+        self.loadAverages = loadAverages
+        self.uptimeSeconds = uptimeSeconds
+        self.updatedAt = updatedAt
+        self.errorMessage = errorMessage
+    }
+
+    public var id: String { alias }
+
+    public var cpuUsageText: String {
+        metricText(cpuUsagePercent)
+    }
+
+    public var memoryUsageText: String {
+        metricText(memoryUsagePercent)
+    }
+
+    public var loadAverageText: String {
+        guard !loadAverages.isEmpty else { return "--" }
+        return loadAverages.prefix(3)
+            .map { String(format: "%.2f", $0) }
+            .joined(separator: "  ")
+    }
+
+    public var uptimeText: String {
+        guard let uptimeSeconds else { return "--" }
+        return uptimeSeconds.compactDurationString
+    }
+
+    public var memoryUsageSummary: String {
+        guard let memoryUsedBytes, let memoryTotalBytes else { return "--" }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(memoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(memoryTotalBytes), countStyle: .binary))"
+    }
+
+    public var updatedAtText: String {
+        guard let updatedAt else { return "--" }
+        return updatedAt.formatted(date: .omitted, time: .standard)
+    }
+
+    public var hasMetrics: Bool {
+        cpuUsagePercent != nil || memoryUsagePercent != nil
+    }
+
+    private func metricText(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return "\(Int(value.rounded()))%"
+    }
+}
+
+public enum WidgetSnapshotStore {
+    public static let appGroupIdentifier = "group.com.computerbar.shared"
+    private static let legacyAppGroupIdentifier = "group.com.sshbar.shared"
+    private static let legacyAppBundleIdentifier = "com.sshbar.app"
+    private static let legacyWidgetBundleIdentifier = "com.sshbar.app.widget"
+    private static let legacySnapshotDirectoryName = "SSHBar"
+
+    public static var snapshotURL: URL {
+        candidateSnapshotURLs.first ?? legacySnapshotURL
+    }
+
+    public static func load() throws -> WidgetSnapshot {
+        let fileManager = FileManager.default
+        var loadedSnapshots: [WidgetSnapshot] = []
+        var lastError: Error?
+
+        if let sharedDefaults,
+           let data = sharedDefaults.data(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey) {
+            do {
+                loadedSnapshots.append(try decodeSnapshot(from: data))
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let legacySharedDefaults,
+           let data = legacySharedDefaults.data(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey) {
+            do {
+                loadedSnapshots.append(try decodeSnapshot(from: data))
+            } catch {
+                lastError = error
+            }
+        }
+
+        for url in readSnapshotURLs where fileManager.fileExists(atPath: url.path) {
+            do {
+                let data = try Data(contentsOf: url)
+                loadedSnapshots.append(try decodeSnapshot(from: data))
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let newestSnapshot = newestSnapshot(in: loadedSnapshots) {
+            return newestSnapshot
+        }
+
+        throw lastError ?? CocoaError(.fileReadNoSuchFile)
+    }
+
+    public static func loadIfAvailable() -> WidgetSnapshot? {
+        try? load()
+    }
+
+    public static func save(_ snapshot: WidgetSnapshot) throws {
+        let fileManager = FileManager.default
+        let data = try encoder.encode(snapshot)
+        var savedAtLeastOnce = false
+        var lastError: Error?
+
+        if let sharedDefaults {
+            sharedDefaults.set(data, forKey: ComputerBarWidgetConstants.snapshotDefaultsKey)
+            sharedDefaults.synchronize()
+            savedAtLeastOnce = true
+        }
+
+        for url in candidateSnapshotURLs {
+            do {
+                let directoryURL = url.deletingLastPathComponent()
+                try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                try data.write(to: url, options: .atomic)
+                savedAtLeastOnce = true
+            } catch {
+                lastError = error
+            }
+        }
+
+        if !savedAtLeastOnce {
+            throw lastError ?? CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    public static func delete() throws {
+        let fileManager = FileManager.default
+        sharedDefaults?.removeObject(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey)
+        sharedDefaults?.synchronize()
+        for url in candidateSnapshotURLs where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    private static var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: appGroupIdentifier)
+    }
+
+    private static var legacySharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: legacyAppGroupIdentifier)
+    }
+
+    private static func decodeSnapshot(from data: Data) throws -> WidgetSnapshot {
+        try decoder.decode(WidgetSnapshot.self, from: data)
+    }
+
+    static func newestSnapshot(in snapshots: [WidgetSnapshot]) -> WidgetSnapshot? {
+        snapshots.max { lhs, rhs in
+            lhs.generatedAt < rhs.generatedAt
+        }
+    }
+
+    private static var candidateSnapshotURLs: [URL] {
+        var urls: [URL] = []
+
+        if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            urls.append(
+                ownAppSupportURL
+                    .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+        }
+
+        if let sharedContainerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) {
+            urls.append(
+                sharedContainerURL
+                    .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                    .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+            urls.append(
+                sharedContainerURL
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+        }
+
+        urls.append(contentsOf: deterministicContainerSnapshotURLs(forBundleIdentifier: ComputerBarWidgetConstants.widgetBundleIdentifier))
+        urls.append(contentsOf: deterministicContainerSnapshotURLs(forBundleIdentifier: ComputerBarWidgetConstants.appBundleIdentifier))
+        urls.append(legacySnapshotURL)
+
+        var seen = Set<String>()
+        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private static var readSnapshotURLs: [URL] {
+        var seen = Set<String>()
+        return (candidateSnapshotURLs + legacyCandidateSnapshotURLs).filter {
+            seen.insert($0.standardizedFileURL.path).inserted
+        }
+    }
+
+    private static var legacyCandidateSnapshotURLs: [URL] {
+        var urls: [URL] = []
+
+        if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            urls.append(
+                ownAppSupportURL
+                    .appending(path: legacySnapshotDirectoryName, directoryHint: .isDirectory)
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+        }
+
+        if let sharedContainerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: legacyAppGroupIdentifier) {
+            urls.append(
+                sharedContainerURL
+                    .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                    .appending(path: legacySnapshotDirectoryName, directoryHint: .isDirectory)
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+            urls.append(
+                sharedContainerURL
+                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+            )
+        }
+
+        urls.append(contentsOf: deterministicContainerSnapshotURLs(
+            forBundleIdentifier: legacyWidgetBundleIdentifier,
+            snapshotDirectoryName: legacySnapshotDirectoryName
+        ))
+        urls.append(contentsOf: deterministicContainerSnapshotURLs(
+            forBundleIdentifier: legacyAppBundleIdentifier,
+            snapshotDirectoryName: legacySnapshotDirectoryName
+        ))
+
+        return urls
+    }
+
+    private static var legacySnapshotURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+            .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
+            .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+    }
+
+    private static func deterministicContainerSnapshotURLs(
+        forBundleIdentifier bundleIdentifier: String,
+        snapshotDirectoryName: String = ComputerBarWidgetConstants.snapshotDirectoryName
+    ) -> [URL] {
+        let containerRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Containers", directoryHint: .isDirectory)
+            .appending(path: bundleIdentifier, directoryHint: .isDirectory)
+            .appending(path: "Data", directoryHint: .isDirectory)
+
+        return [
+            containerRoot
+                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
+                .appending(path: snapshotDirectoryName, directoryHint: .isDirectory)
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
+            containerRoot
+                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
+        ]
+    }
+}
+
+private extension TimeInterval {
+    var compactDurationString: String {
+        let totalSeconds = max(0, Int(self.rounded(.down)))
+        let days = totalSeconds / 86_400
+        let hours = (totalSeconds % 86_400) / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        var parts: [String] = []
+        if days > 0 {
+            parts.append("\(days)d")
+        }
+        if hours > 0 {
+            parts.append("\(hours)h")
+        }
+        if minutes > 0, parts.count < 2 {
+            parts.append("\(minutes)m")
+        }
+        if parts.isEmpty {
+            parts.append("\(seconds)s")
+        }
+
+        return parts.joined(separator: " ")
+    }
+}

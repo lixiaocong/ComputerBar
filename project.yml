@@ -1,0 +1,52 @@
+name: ComputerBar
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  ComputerBar:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/ComputerBar
+      - path: Sources/ComputerBarShared
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+      - path: Resources/AppIcon.xcassets
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.computerbar.app
+        PRODUCT_NAME: ComputerBar
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Resources/ComputerBar.entitlements
+        SWIFT_EMIT_LOC_STRINGS: NO
+    dependencies:
+      - target: ComputerBarWidgetExtension
+        embed: true
+  ComputerBarWidgetExtension:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/ComputerBarWidget
+      - path: Sources/ComputerBarShared
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+      - path: Resources/AppIcon.xcassets
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.computerbar.app.widget
+        PRODUCT_NAME: ComputerBarWidgetExtension
+        INFOPLIST_FILE: Resources/Widget-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: Resources/ComputerBarWidget.entitlements
+        SWIFT_EMIT_LOC_STRINGS: NO

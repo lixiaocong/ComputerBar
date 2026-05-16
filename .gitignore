@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.swiftpm/
+.xcodebuild/
+DerivedData/
+build/
+build/*.app
+ComputerBar.xcodeproj
