@@ -5,138 +5,47 @@ import WidgetKit
 import ComputerBarShared
 #endif
 
-// MARK: - Per-Instance Selection Persistence
-
-/// Persists the selected host alias to a file in the widget's sandbox.
-/// Written by the interactive SelectHostIntent, read by the timeline provider.
-private enum WidgetSelectionStore {
-    private static let filename = "widget-selection.json"
-
-    struct Selection: Codable {
-        var selectedAlias: String?
-    }
-
-    static func load() -> Selection {
-        let url = fileURL()
-        guard let data = try? Data(contentsOf: url),
-              let selection = try? JSONDecoder().decode(Selection.self, from: data) else {
-            return Selection(selectedAlias: nil)
-        }
-        return selection
-    }
-
-    static func save(_ selection: Selection) {
-        let url = fileURL()
-        guard let data = try? JSONEncoder().encode(selection) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    static func fileURL() -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(filename)
-    }
-}
-
-// MARK: - Interactive Intent for Host Selection
-
-/// Interactive intent triggered by tapping a host tab in the widget.
-/// This is the ONLY reliable mechanism for widget configuration without
-/// a proper Apple Developer certificate (AppIntent parameter persistence is broken).
-struct SelectComputerBarHostIntent: AppIntent {
-    static let title: LocalizedStringResource = "Select Host"
-    static let description = IntentDescription("Selects which host to display in the widget.")
-
-    @Parameter(title: "Host Alias")
-    var alias: String
-
-    init() {
-        self.alias = ""
-    }
-
-    init(alias: String) {
-        self.alias = alias
-    }
-
-    func perform() async throws -> some IntentResult {
-        var selection = WidgetSelectionStore.load()
-        selection.selectedAlias = alias
-        WidgetSelectionStore.save(selection)
-        return .result()
-    }
-}
-
-// MARK: - Widget Configuration (kept for Edit UI, even though persistence is broken)
+// MARK: - Widget Configuration
 
 struct ComputerBarWidgetEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
     let selectedAlias: String?
-    let availableHosts: [WidgetHostSnapshot]
 }
 
-struct ComputerBarHostSelection: AppEntity {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Host")
-    static let defaultQuery = ComputerBarHostSelectionQuery()
+private enum ComputerBarWidgetHostID {
+    static let local = "local"
+    private static let localAliases = Set(["__local__computerbar__", "__local__sshbar__"])
 
-    let id: String
-    let title: String
-    let subtitle: String
+    static func widgetValue(for host: WidgetHostSnapshot) -> String {
+        localAliases.contains(host.alias) ? host.widgetTitle : host.alias
+    }
 
-    var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(
-            title: "\(title)",
-            subtitle: "\(subtitle)"
-        )
+    static func snapshotAlias(for widgetValue: String, in snapshot: WidgetSnapshot?) -> String? {
+        let trimmedValue = widgetValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return nil
+        }
+
+        if trimmedValue == local || localAliases.contains(trimmedValue) {
+            return snapshot?.selectedHosts.first { localAliases.contains($0.alias) }?.alias
+        }
+
+        if let host = snapshot?.selectedHosts.first(where: { host in
+            host.alias == trimmedValue || host.widgetTitle == trimmedValue
+        }) {
+            return host.alias
+        }
+
+        return trimmedValue
     }
 }
 
-struct ComputerBarHostSelectionQuery: EntityQuery {
-    func entities(for identifiers: [ComputerBarHostSelection.ID]) async throws -> [ComputerBarHostSelection] {
-        let selections = Self.availableSelections()
-
-        // Persist selection when the system resolves an entity (Edit Widget confirmation)
-        if let id = identifiers.first {
-            var stored = WidgetSelectionStore.load()
-            stored.selectedAlias = id
-            WidgetSelectionStore.save(stored)
-        }
-
-        return identifiers.map { identifier in
-            selections.first { $0.id == identifier } ?? ComputerBarHostSelection(
-                id: identifier,
-                title: identifier,
-                subtitle: "Unavailable host"
-            )
-        }
-    }
-
-    func suggestedEntities() async throws -> [ComputerBarHostSelection] {
-        Self.availableSelections()
-    }
-
-    func defaultResult() async -> ComputerBarHostSelection? {
-        nil
-    }
-
-    private static func availableSelections() -> [ComputerBarHostSelection] {
-        WidgetSnapshotStore.loadIfAvailable()?.selectedHosts.map(selection) ?? []
-    }
-
-    private static func selection(for host: WidgetHostSnapshot) -> ComputerBarHostSelection {
-        let subtitle: String
-        if host.errorMessage != nil {
-            subtitle = "Error"
-        } else if host.hasMetrics {
-            subtitle = "CPU \(host.cpuUsageText), memory \(host.memoryUsageText)"
-        } else {
-            subtitle = host.endpointDescription
-        }
-
-        return ComputerBarHostSelection(
-            id: host.alias,
-            title: host.widgetTitle,
-            subtitle: subtitle
-        )
+struct ComputerBarHostOptionsProvider: DynamicOptionsProvider {
+    func results() async throws -> [String] {
+        WidgetSnapshotStore.loadIfAvailable()?.selectedHosts.map {
+            ComputerBarWidgetHostID.widgetValue(for: $0)
+        } ?? []
     }
 }
 
@@ -144,11 +53,15 @@ struct ComputerBarWidgetConfigurationIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Computer Bar"
     static let description = IntentDescription("Shows one monitored computer on the desktop.")
 
-    @Parameter(title: "Host", description: "The ComputerBar host to show in this widget.")
-    var host: ComputerBarHostSelection?
+    @Parameter(
+        title: "Host",
+        description: "The ComputerBar host to show in this widget.",
+        optionsProvider: ComputerBarHostOptionsProvider()
+    )
+    var hostID: String?
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Show \(\.$host)")
+        Summary("Show \(\.$hostID)")
     }
 }
 
@@ -164,8 +77,7 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
         ComputerBarWidgetEntry(
             date: .now,
             snapshot: placeholderSnapshot,
-            selectedAlias: placeholderSnapshot.selectedHosts.first?.alias,
-            availableHosts: placeholderSnapshot.selectedHosts
+            selectedAlias: placeholderSnapshot.selectedHosts.first?.alias
         )
     }
 
@@ -177,19 +89,11 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
             return placeholder(in: context)
         }
 
-        // Capture any non-nil intent selection
-        if let intentAlias = configuration.host?.id {
-            var selection = WidgetSelectionStore.load()
-            selection.selectedAlias = intentAlias
-            WidgetSelectionStore.save(selection)
-        }
-
         let snapshot = loadSnapshot() ?? placeholderSnapshot
         return ComputerBarWidgetEntry(
             date: .now,
             snapshot: snapshot,
-            selectedAlias: resolvedAlias(from: configuration, snapshot: snapshot),
-            availableHosts: snapshot.selectedHosts
+            selectedAlias: resolvedAlias(from: configuration, snapshot: snapshot)
         )
     }
 
@@ -198,21 +102,12 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
         in context: Context
     ) async -> Timeline<ComputerBarWidgetEntry> {
         let snapshot = loadSnapshot()
-
-        // Persist intent selection if available (Edit Widget flow)
-        if let intentAlias = configuration.host?.id {
-            var selection = WidgetSelectionStore.load()
-            selection.selectedAlias = intentAlias
-            WidgetSelectionStore.save(selection)
-        }
-
         let resolved = resolvedAlias(from: configuration, snapshot: snapshot)
 
         let entry = ComputerBarWidgetEntry(
             date: .now,
             snapshot: snapshot,
-            selectedAlias: resolved,
-            availableHosts: snapshot?.selectedHosts ?? []
+            selectedAlias: resolved
         )
         let nextReload = Date().addingTimeInterval(
             snapshot == nil ? Self.missingSnapshotRetryInterval : Self.normalRefreshInterval
@@ -220,22 +115,25 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
         return Timeline(entries: [entry], policy: .after(nextReload))
     }
 
-    /// Resolves the selected host: intent parameter → persisted file → primary host.
+    /// Resolves the selected host from this widget instance's edit configuration.
     private func resolvedAlias(from configuration: ComputerBarWidgetConfigurationIntent, snapshot: WidgetSnapshot?) -> String? {
-        // If intent has a value, use it directly
-        if let intentAlias = configuration.host?.id,
-           snapshot?.selectedHosts.contains(where: { $0.alias == intentAlias }) == true {
-            return intentAlias
+        if let configuredAlias = resolvedConfiguredAlias(from: configuration, snapshot: snapshot),
+           snapshot?.selectedHosts.contains(where: { $0.alias == configuredAlias }) == true {
+            return configuredAlias
         }
 
-        // Fall back to persisted file selection
-        if let fileAlias = WidgetSelectionStore.load().selectedAlias,
-           snapshot?.selectedHosts.contains(where: { $0.alias == fileAlias }) == true {
-            return fileAlias
-        }
-
-        // Fall back to primary host
         return snapshot?.primaryAlias ?? snapshot?.selectedHosts.first?.alias
+    }
+
+    private func resolvedConfiguredAlias(
+        from configuration: ComputerBarWidgetConfigurationIntent,
+        snapshot: WidgetSnapshot?
+    ) -> String? {
+        guard let intentID = configuration.hostID else {
+            return nil
+        }
+
+        return ComputerBarWidgetHostID.snapshotAlias(for: intentID, in: snapshot)
     }
 
     private var placeholderSnapshot: WidgetSnapshot {
@@ -298,6 +196,24 @@ struct ComputerBarStatusWidget: Widget {
     }
 }
 
+struct LegacyComputerBarStatusWidget: Widget {
+    let kind = ComputerBarWidgetConstants.legacyStatusWidgetKind
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(
+            kind: kind,
+            intent: ComputerBarWidgetConfigurationIntent.self,
+            provider: ComputerBarWidgetProvider()
+        ) { entry in
+            ComputerBarWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Computer Bar")
+        .description("Shows the latest status for one monitored computer.")
+        .supportedFamilies([.systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
 // MARK: - Widget View
 
 struct ComputerBarWidgetEntryView: View {
@@ -335,7 +251,7 @@ struct ComputerBarWidgetEntryView: View {
         } else {
             emptyState(
                 title: "No Host Selected",
-                message: "Tap a host below to display it."
+                message: "Edit this widget and choose a ComputerBar host."
             )
         }
     }
@@ -367,36 +283,9 @@ struct ComputerBarWidgetEntryView: View {
             }
 
             Spacer(minLength: 0)
-
-            // Host picker tabs (interactive intent buttons)
-            if entry.availableHosts.count > 1 {
-                hostPickerBar(selectedAlias: host.alias)
-            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func hostPickerBar(selectedAlias: String) -> some View {
-        HStack(spacing: 4) {
-            ForEach(entry.availableHosts) { host in
-                Button(intent: SelectComputerBarHostIntent(alias: host.alias)) {
-                    Text(host.widgetTitle)
-                        .font(.system(size: 9, weight: host.alias == selectedAlias ? .bold : .medium))
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(host.alias == selectedAlias
-                                      ? palette.primaryText.opacity(0.15)
-                                      : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer(minLength: 0)
-        }
     }
 
     private func metricCard(title: String, value: Double?, text: String, tint: Color) -> some View {
@@ -529,32 +418,23 @@ struct ComputerBarWidgetEntryView: View {
 private struct WidgetPalette {
     let backgroundTop: Color
     let backgroundBottom: Color
-    let surface: Color
-    let surfaceStroke: Color
     let pillBackground: Color
     let primaryText: Color
     let secondaryText: Color
-    let shadow: Color
 
     init(colorScheme: ColorScheme) {
         if colorScheme == .dark {
             backgroundTop = Color(red: 0.16, green: 0.18, blue: 0.22)
             backgroundBottom = Color(red: 0.21, green: 0.24, blue: 0.29)
-            surface = Color.white.opacity(0.14)
-            surfaceStroke = Color.white.opacity(0.18)
             pillBackground = Color.white.opacity(0.12)
             primaryText = Color.white.opacity(0.98)
             secondaryText = Color.white.opacity(0.78)
-            shadow = Color.black.opacity(0.24)
         } else {
             backgroundTop = Color(red: 0.985, green: 0.988, blue: 0.995)
             backgroundBottom = Color(red: 0.945, green: 0.956, blue: 0.976)
-            surface = Color.white.opacity(0.86)
-            surfaceStroke = Color.black.opacity(0.06)
             pillBackground = Color.white.opacity(0.92)
             primaryText = Color(red: 0.10, green: 0.16, blue: 0.23)
             secondaryText = Color(red: 0.31, green: 0.39, blue: 0.49)
-            shadow = Color.black.opacity(0.08)
         }
     }
 }
@@ -563,6 +443,6 @@ private struct WidgetPalette {
 struct ComputerBarWidgets: WidgetBundle {
     var body: some Widget {
         ComputerBarStatusWidget()
+        LegacyComputerBarStatusWidget()
     }
 }
-

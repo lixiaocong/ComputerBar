@@ -619,6 +619,7 @@ final class AppModel {
         #if canImport(WidgetKit)
         if #available(macOS 14.0, *) {
             WidgetCenter.shared.reloadTimelines(ofKind: ComputerBarWidgetConstants.statusWidgetKind)
+            WidgetCenter.shared.reloadTimelines(ofKind: ComputerBarWidgetConstants.legacyStatusWidgetKind)
             WidgetCenter.shared.reloadAllTimelines()
         }
         #endif

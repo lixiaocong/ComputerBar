@@ -4,6 +4,7 @@ public enum ComputerBarWidgetConstants {
     public static let appBundleIdentifier = "com.computerbar.app"
     public static let widgetBundleIdentifier = "com.computerbar.app.widget"
     public static let statusWidgetKind = "ComputerBarStatusWidget"
+    public static let legacyStatusWidgetKind = "ComputerBarStatusWidget-2"
     public static let snapshotFilename = "widget-snapshot.json"
     public static let snapshotDirectoryName = "ComputerBar"
     public static let snapshotDefaultsKey = "widgetSnapshotData"
