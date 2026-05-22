@@ -271,8 +271,8 @@ struct ComputerBarWidgetEntryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(spacing: 10) {
-                    metricCard(title: "CPU", value: host.cpuUsagePercent, text: host.cpuUsageText, tint: .cyan)
-                    metricCard(title: "Mem", value: host.memoryUsagePercent, text: host.memoryUsageText, tint: .green)
+                    metricCard(title: "CPU", value: host.cpuUsagePercent, text: host.cpuUsageText)
+                    metricCard(title: "Mem", value: host.memoryUsagePercent, text: host.memoryUsageText)
                 }
 
                 HStack(spacing: 6) {
@@ -288,8 +288,10 @@ struct ComputerBarWidgetEntryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func metricCard(title: String, value: Double?, text: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func metricCard(title: String, value: Double?, text: String) -> some View {
+        let tint = usageTint(for: value)
+
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
                     .font(.caption.weight(.semibold))
@@ -312,6 +314,19 @@ struct ComputerBarWidgetEntryView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(tint.opacity(colorScheme == .dark ? 0.24 : 0.16), lineWidth: 1)
+        }
+    }
+
+    private func usageTint(for percent: Double?) -> Color {
+        guard let percent else { return .green }
+
+        switch percent {
+        case 95...:
+            return .red
+        case 80...:
+            return .orange
+        default:
+            return .green
         }
     }
 
