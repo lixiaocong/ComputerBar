@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <EmbeddedResource Include="AppIcon.ico" LogicalName="ComputerBar.Windows.AppIcon.ico" />
     <ProjectReference Include="..\ComputerBar.Core\ComputerBar.Core.csproj" />
   </ItemGroup>
 

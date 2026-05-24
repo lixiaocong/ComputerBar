@@ -8,12 +8,22 @@ namespace ComputerBar.Windows;
 
 public sealed class TrayController : IDisposable
 {
+    private static readonly TimeSpan[] NotifyIconSettingsSnapshotRetryOffsets =
+    {
+        TimeSpan.FromMilliseconds(800),
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(20)
+    };
+
     private readonly RefreshCoordinator _coordinator;
     private readonly ITrayIconRenderer _renderer;
     private readonly Forms.NotifyIcon _notifyIcon;
     private PopoverWindow? _popover;
     private SettingsWindow? _settings;
     private System.Drawing.Icon? _currentIcon;
+    private long _notifyIconSettingsSnapshotVersion;
     private bool _dynamicTrayIconEnabled;
     private bool _disposed;
     private DateTimeOffset _lastTrayActivation = DateTimeOffset.MinValue;
@@ -177,6 +187,8 @@ public sealed class TrayController : IDisposable
         var previous = _currentIcon;
         _currentIcon = appIcon;
         _notifyIcon.Icon = _currentIcon;
+        NotifyIconSettingsIconSnapshot.UpdateCurrentProcessSnapshot();
+        QueueNotifyIconSettingsSnapshotRefresh();
         previous?.Dispose();
     }
 
@@ -187,7 +199,36 @@ public sealed class TrayController : IDisposable
         _currentIcon = rendered.Icon;
         _notifyIcon.Icon = _currentIcon;
         UpdateTrayText();
+        NotifyIconSettingsIconSnapshot.UpdateCurrentProcessSnapshot();
+        QueueNotifyIconSettingsSnapshotRefresh();
         previous?.Dispose();
+    }
+
+    private void QueueNotifyIconSettingsSnapshotRefresh()
+    {
+        var version = System.Threading.Interlocked.Increment(ref _notifyIconSettingsSnapshotVersion);
+        _ = RefreshNotifyIconSettingsSnapshotAfterShellUpdateAsync(version);
+    }
+
+    private async Task RefreshNotifyIconSettingsSnapshotAfterShellUpdateAsync(long version)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var offset in NotifyIconSettingsSnapshotRetryOffsets)
+        {
+            var remaining = offset - stopwatch.Elapsed;
+            if (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining);
+            }
+
+            if (_disposed ||
+                version != System.Threading.Volatile.Read(ref _notifyIconSettingsSnapshotVersion))
+            {
+                return;
+            }
+
+            NotifyIconSettingsIconSnapshot.UpdateCurrentProcessSnapshot();
+        }
     }
 
     private void UpdateTrayText()
@@ -281,10 +322,7 @@ public sealed class TrayController : IDisposable
     {
         try
         {
-            var processPath = Environment.ProcessPath;
-            return string.IsNullOrWhiteSpace(processPath)
-                ? null
-                : System.Drawing.Icon.ExtractAssociatedIcon(processPath);
+            return ApplicationIconResource.LoadIcon();
         }
         catch
         {
