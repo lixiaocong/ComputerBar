@@ -12,6 +12,10 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ComputerBar</AssemblyName>
+    <Title>ComputerBar</Title>
+    <Product>ComputerBar</Product>
+    <Description>ComputerBar</Description>
     <ApplicationIcon>AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
