@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <EmbeddedResource Include="AppIcon.ico" LogicalName="ComputerBar.Windows.AppIcon.ico" />
+    <ProjectReference Include="..\ComputerBar.Core\ComputerBar.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ComputerBar</AssemblyName>
+    <Title>ComputerBar</Title>
+    <Product>ComputerBar</Product>
+    <Description>ComputerBar</Description>
+    <ApplicationIcon>AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+</Project>

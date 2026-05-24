@@ -6,3 +6,5 @@ DerivedData/
 build/
 build/*.app
 ComputerBar.xcodeproj
+Windows/**/bin/
+Windows/**/obj/
