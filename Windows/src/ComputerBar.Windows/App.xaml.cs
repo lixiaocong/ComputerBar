@@ -8,13 +8,22 @@ namespace ComputerBar.Windows;
 
 public partial class App : System.Windows.Application
 {
+    private const string SingleInstanceMutexName = @"Local\ComputerBar.Windows.SingleInstance.v1";
+
     private TrayController? _trayController;
     private RefreshCoordinator? _coordinator;
     private CancellationTokenSource? _timerCts;
+    private Mutex? _singleInstanceMutex;
+    private bool _ownsSingleInstanceMutex;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!TryAcquireSingleInstance())
+        {
+            Shutdown();
+            return;
+        }
 
         var settingsStore = new JsonSettingsStore(ComputerBarPaths.Default);
         var hostConfig = new SshConfigService();
@@ -32,7 +41,41 @@ public partial class App : System.Windows.Application
     {
         _timerCts?.Cancel();
         _trayController?.Dispose();
+        ReleaseSingleInstance();
         base.OnExit(e);
+    }
+
+    private bool TryAcquireSingleInstance()
+    {
+        _singleInstanceMutex = new Mutex(
+            initiallyOwned: true,
+            name: SingleInstanceMutexName,
+            createdNew: out _ownsSingleInstanceMutex);
+        if (_ownsSingleInstanceMutex)
+        {
+            return true;
+        }
+
+        _singleInstanceMutex.Dispose();
+        _singleInstanceMutex = null;
+        return false;
+    }
+
+    private void ReleaseSingleInstance()
+    {
+        if (_singleInstanceMutex is null)
+        {
+            return;
+        }
+
+        if (_ownsSingleInstanceMutex)
+        {
+            _singleInstanceMutex.ReleaseMutex();
+        }
+
+        _singleInstanceMutex.Dispose();
+        _singleInstanceMutex = null;
+        _ownsSingleInstanceMutex = false;
     }
 
     private void StartRefreshLoop()
