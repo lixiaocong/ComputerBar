@@ -42,6 +42,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
     public let memoryUsagePercent: Double?
     public let memoryUsedBytes: UInt64?
     public let memoryTotalBytes: UInt64?
+    public let diskUsagePercent: Double?
+    public let diskUsedBytes: UInt64?
+    public let diskTotalBytes: UInt64?
     public let loadAverages: [Double]
     public let uptimeSeconds: TimeInterval?
     public let updatedAt: Date?
@@ -55,6 +58,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         memoryUsagePercent: Double?,
         memoryUsedBytes: UInt64?,
         memoryTotalBytes: UInt64?,
+        diskUsagePercent: Double? = nil,
+        diskUsedBytes: UInt64? = nil,
+        diskTotalBytes: UInt64? = nil,
         loadAverages: [Double],
         uptimeSeconds: TimeInterval?,
         updatedAt: Date?,
@@ -67,6 +73,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         self.memoryUsagePercent = memoryUsagePercent
         self.memoryUsedBytes = memoryUsedBytes
         self.memoryTotalBytes = memoryTotalBytes
+        self.diskUsagePercent = diskUsagePercent
+        self.diskUsedBytes = diskUsedBytes
+        self.diskTotalBytes = diskTotalBytes
         self.loadAverages = loadAverages
         self.uptimeSeconds = uptimeSeconds
         self.updatedAt = updatedAt
@@ -94,6 +103,10 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         metricText(memoryUsagePercent)
     }
 
+    public var diskUsageText: String {
+        metricText(diskUsagePercent)
+    }
+
     public var loadAverageText: String {
         guard !loadAverages.isEmpty else { return "--" }
         return loadAverages.prefix(3)
@@ -117,13 +130,18 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         return "\(ByteCountFormatter.string(fromByteCount: Int64(memoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(memoryTotalBytes), countStyle: .binary))"
     }
 
+    public var diskUsageSummary: String {
+        guard let diskUsedBytes, let diskTotalBytes else { return "--" }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(diskUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(diskTotalBytes), countStyle: .binary))"
+    }
+
     public var updatedAtText: String {
         guard let updatedAt else { return "--" }
         return updatedAt.formatted(date: .omitted, time: .standard)
     }
 
     public var hasMetrics: Bool {
-        cpuUsagePercent != nil || memoryUsagePercent != nil
+        cpuUsagePercent != nil || memoryUsagePercent != nil || diskUsagePercent != nil
     }
 
     private func metricText(_ value: Double?) -> String {
