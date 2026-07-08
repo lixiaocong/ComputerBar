@@ -15,6 +15,9 @@ final class WidgetSnapshotStoreTests: XCTestCase {
                     memoryUsagePercent: 68.2,
                     memoryUsedBytes: 2_147_483_648,
                     memoryTotalBytes: 4_294_967_296,
+                    virtualMemoryUsagePercent: 25,
+                    virtualMemoryUsedBytes: 1_073_741_824,
+                    virtualMemoryTotalBytes: 4_294_967_296,
                     loadAverages: [0.1, 0.2, 0.3],
                     uptimeSeconds: 3_661,
                     updatedAt: Date(timeIntervalSince1970: 1_718_000_100),
@@ -34,6 +37,9 @@ final class WidgetSnapshotStoreTests: XCTestCase {
         let reloaded = try JSONDecoder.iso8601Decoder.decode(WidgetSnapshot.self, from: Data(contentsOf: tempURL))
 
         XCTAssertEqual(reloaded, snapshot)
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryUsageText, "25%")
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryUsedBytes, 1_073_741_824)
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryTotalBytes, 4_294_967_296)
     }
 
     func testStoreChoosesNewestGeneratedSnapshot() {

@@ -149,6 +149,9 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
                     memoryUsagePercent: 63,
                     memoryUsedBytes: 6_764_298_240,
                     memoryTotalBytes: 10_737_418_240,
+                    virtualMemoryUsagePercent: 25,
+                    virtualMemoryUsedBytes: 1_073_741_824,
+                    virtualMemoryTotalBytes: 4_294_967_296,
                     diskUsagePercent: 72,
                     diskUsedBytes: 193_273_528_320,
                     diskTotalBytes: 268_435_456_000,
@@ -277,7 +280,6 @@ struct ComputerBarWidgetEntryView: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 metricRows(for: host)
-                footer(host)
             }
 
             Spacer(minLength: 0)
@@ -301,6 +303,15 @@ struct ComputerBarWidgetEntryView: View {
                 percentText: host.memoryUsageText,
                 detail: host.memoryUsageSummary
             )
+
+            if host.hasVirtualMemoryUsage {
+                metricRow(
+                    title: "Virtual Memory",
+                    value: host.virtualMemoryUsagePercent,
+                    percentText: host.virtualMemoryUsageText,
+                    detail: host.virtualMemoryUsageSummary
+                )
+            }
 
             metricRow(
                 title: "Disk Usage",
@@ -365,24 +376,6 @@ struct ComputerBarWidgetEntryView: View {
         .frame(height: 5)
     }
 
-    private func footer(_ host: WidgetHostSnapshot) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("Load Avg")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(palette.secondaryText)
-            Text(host.loadAverageText)
-                .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                .lineLimit(1)
-
-            Spacer(minLength: 4)
-
-            Text(host.updatedAtText)
-                .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                .foregroundStyle(palette.secondaryText)
-                .lineLimit(1)
-        }
-    }
-
     private func metricCard(title: String, value: Double?, text: String) -> some View {
         let tint = usageTint(for: value)
 
@@ -428,12 +421,6 @@ struct ComputerBarWidgetEntryView: View {
     private func summaryHeader(host: WidgetHostSnapshot, accent: Color) -> some View {
         HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Computer Bar")
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                    .foregroundStyle(accent)
-                    .textCase(.uppercase)
-                    .lineLimit(1)
-
                 Text(host.widgetTitle)
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     .lineLimit(1)

@@ -85,7 +85,7 @@ public sealed class StorageAndCoordinatorTests
         {
             var results = hosts.Select(host => new NodeFetchResult(
                 host.Alias,
-                new NodeStatus(host, 12, 34, 10, 100, 56, 20, 100, [], 10, DateTimeOffset.Now),
+                new NodeStatus(host, 12, 34, 10, 100, null, null, null, 56, 20, 100, [], 10, DateTimeOffset.Now),
                 null)).ToArray();
             return Task.FromResult<IReadOnlyList<NodeFetchResult>>(results);
         }

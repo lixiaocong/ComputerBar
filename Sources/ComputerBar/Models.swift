@@ -49,6 +49,9 @@ struct NodeStatus: Equatable, Identifiable {
     let memoryUsagePercent: Double
     let memoryUsedBytes: UInt64
     let memoryTotalBytes: UInt64
+    let virtualMemoryUsagePercent: Double?
+    let virtualMemoryUsedBytes: UInt64?
+    let virtualMemoryTotalBytes: UInt64?
     let diskUsagePercent: Double
     let diskUsedBytes: UInt64
     let diskTotalBytes: UInt64
@@ -70,6 +73,20 @@ struct NodeStatus: Equatable, Identifiable {
         "\(ByteCountFormatter.string(fromByteCount: Int64(memoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(memoryTotalBytes), countStyle: .binary))"
     }
 
+    var hasVirtualMemoryUsage: Bool {
+        virtualMemoryUsagePercent != nil
+    }
+
+    var virtualMemoryUsageText: String {
+        guard let virtualMemoryUsagePercent else { return "--" }
+        return "\(Int(virtualMemoryUsagePercent.rounded()))%"
+    }
+
+    var virtualMemoryUsageSummary: String {
+        guard let virtualMemoryUsedBytes, let virtualMemoryTotalBytes else { return "--" }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(virtualMemoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(virtualMemoryTotalBytes), countStyle: .binary))"
+    }
+
     var diskUsageText: String {
         "\(Int(diskUsagePercent.rounded()))%"
     }
@@ -89,6 +106,16 @@ struct NodeStatus: Equatable, Identifiable {
 
     var updatedAtText: String {
         collectedAt.formatted(date: .omitted, time: .standard)
+    }
+
+    var highestUsagePercent: Double {
+        max(
+            cpuUsagePercent,
+            max(
+                memoryUsagePercent,
+                max(diskUsagePercent, virtualMemoryUsagePercent ?? 0)
+            )
+        )
     }
 }
 

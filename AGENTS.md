@@ -7,7 +7,7 @@ Computer Bar is a macOS menu bar app plus WidgetKit extension for monitoring rem
 Core behavior:
 - Reads `~/.ssh/config` for the host list.
 - Allows multi-select host monitoring.
-- Shows CPU and memory for the first selected host in the menu bar.
+- Shows compact CPU, memory, optional Linux swap, and disk usage for selected hosts in the menu bar.
 - Opens a panel that shows one column per selected host.
 - Refreshes in the background on the configured interval. Default is `1s`.
 - Ships with a desktop widget that renders the latest stored snapshot.
@@ -21,7 +21,7 @@ Core behavior:
   Loads aliases from `~/.ssh/config` and resolves host details.
 
 - `Sources/ComputerBar/SSHMonitorService.swift`
-  Runs the remote Linux metric collection over SSH and parses CPU, memory, load, and uptime.
+  Runs the remote Linux metric collection over SSH and parses CPU, memory, optional swap, disk, load, and uptime.
 
 - `Sources/ComputerBar/Views/MenuBarView.swift`
   Popover UI for host details and selection-driven layout.

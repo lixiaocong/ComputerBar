@@ -42,6 +42,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
     public let memoryUsagePercent: Double?
     public let memoryUsedBytes: UInt64?
     public let memoryTotalBytes: UInt64?
+    public let virtualMemoryUsagePercent: Double?
+    public let virtualMemoryUsedBytes: UInt64?
+    public let virtualMemoryTotalBytes: UInt64?
     public let diskUsagePercent: Double?
     public let diskUsedBytes: UInt64?
     public let diskTotalBytes: UInt64?
@@ -58,6 +61,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         memoryUsagePercent: Double?,
         memoryUsedBytes: UInt64?,
         memoryTotalBytes: UInt64?,
+        virtualMemoryUsagePercent: Double? = nil,
+        virtualMemoryUsedBytes: UInt64? = nil,
+        virtualMemoryTotalBytes: UInt64? = nil,
         diskUsagePercent: Double? = nil,
         diskUsedBytes: UInt64? = nil,
         diskTotalBytes: UInt64? = nil,
@@ -73,6 +79,9 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         self.memoryUsagePercent = memoryUsagePercent
         self.memoryUsedBytes = memoryUsedBytes
         self.memoryTotalBytes = memoryTotalBytes
+        self.virtualMemoryUsagePercent = virtualMemoryUsagePercent
+        self.virtualMemoryUsedBytes = virtualMemoryUsedBytes
+        self.virtualMemoryTotalBytes = virtualMemoryTotalBytes
         self.diskUsagePercent = diskUsagePercent
         self.diskUsedBytes = diskUsedBytes
         self.diskTotalBytes = diskTotalBytes
@@ -107,6 +116,14 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         metricText(diskUsagePercent)
     }
 
+    public var hasVirtualMemoryUsage: Bool {
+        virtualMemoryUsagePercent != nil
+    }
+
+    public var virtualMemoryUsageText: String {
+        metricText(virtualMemoryUsagePercent)
+    }
+
     public var loadAverageText: String {
         guard !loadAverages.isEmpty else { return "--" }
         return loadAverages.prefix(3)
@@ -130,6 +147,11 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
         return "\(ByteCountFormatter.string(fromByteCount: Int64(memoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(memoryTotalBytes), countStyle: .binary))"
     }
 
+    public var virtualMemoryUsageSummary: String {
+        guard let virtualMemoryUsedBytes, let virtualMemoryTotalBytes else { return "--" }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(virtualMemoryUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(virtualMemoryTotalBytes), countStyle: .binary))"
+    }
+
     public var diskUsageSummary: String {
         guard let diskUsedBytes, let diskTotalBytes else { return "--" }
         return "\(ByteCountFormatter.string(fromByteCount: Int64(diskUsedBytes), countStyle: .binary)) / \(ByteCountFormatter.string(fromByteCount: Int64(diskTotalBytes), countStyle: .binary))"
@@ -141,7 +163,10 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
     }
 
     public var hasMetrics: Bool {
-        cpuUsagePercent != nil || memoryUsagePercent != nil || diskUsagePercent != nil
+        cpuUsagePercent != nil
+            || memoryUsagePercent != nil
+            || virtualMemoryUsagePercent != nil
+            || diskUsagePercent != nil
     }
 
     private func metricText(_ value: Double?) -> String {

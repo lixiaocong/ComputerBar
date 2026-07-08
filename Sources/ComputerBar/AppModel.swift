@@ -188,7 +188,7 @@ final class AppModel {
         let state = statusState(for: host)
         let title = host.displayName
         if let status = state.status {
-            return "\(title): CPU \(status.cpuUsageText), memory \(status.memoryUsageText), disk \(status.diskUsageText), load average \(status.loadAverageText)."
+            return "\(title): \(usageSummary(for: status)), load average \(status.loadAverageText)."
         }
         if let errorMessage = state.errorMessage {
             return "\(title): \(errorMessage)"
@@ -210,7 +210,7 @@ final class AppModel {
         guard !statuses.isEmpty else { return .idle }
 
         let highestUsage = statuses
-            .map { max($0.cpuUsagePercent, max($0.memoryUsagePercent, $0.diskUsagePercent)) }
+            .map(\.highestUsagePercent)
             .max() ?? 0
         switch highestUsage {
         case 95...:
@@ -241,6 +241,7 @@ final class AppModel {
                 label: menuBarLabel(for: host),
                 cpuPercent: status.cpuUsagePercent,
                 memoryPercent: status.memoryUsagePercent,
+                virtualMemoryPercent: status.virtualMemoryUsagePercent,
                 diskPercent: status.diskUsagePercent
             )
         }
@@ -379,12 +380,26 @@ final class AppModel {
     func hostStatusSummary(for host: SSHHost) -> String {
         let state = statusState(for: host)
         if let status = state.status {
-            return "CPU \(status.cpuUsageText), memory \(status.memoryUsageText), disk \(status.diskUsageText)"
+            return usageSummary(for: status)
         }
         if let errorMessage = state.errorMessage {
             return errorMessage
         }
         return "No data yet."
+    }
+
+    private func usageSummary(for status: NodeStatus) -> String {
+        var segments = [
+            "CPU \(status.cpuUsageText)",
+            "memory \(status.memoryUsageText)"
+        ]
+
+        if status.hasVirtualMemoryUsage {
+            segments.append("virtual memory \(status.virtualMemoryUsageText)")
+        }
+
+        segments.append("disk \(status.diskUsageText)")
+        return segments.joined(separator: ", ")
     }
 
     private func reloadHostsTask(triggerRefresh: Bool) async {
@@ -599,6 +614,9 @@ final class AppModel {
                     memoryUsagePercent: state.status?.memoryUsagePercent,
                     memoryUsedBytes: state.status?.memoryUsedBytes,
                     memoryTotalBytes: state.status?.memoryTotalBytes,
+                    virtualMemoryUsagePercent: state.status?.virtualMemoryUsagePercent,
+                    virtualMemoryUsedBytes: state.status?.virtualMemoryUsedBytes,
+                    virtualMemoryTotalBytes: state.status?.virtualMemoryTotalBytes,
                     diskUsagePercent: state.status?.diskUsagePercent,
                     diskUsedBytes: state.status?.diskUsedBytes,
                     diskTotalBytes: state.status?.diskTotalBytes,

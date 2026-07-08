@@ -101,6 +101,9 @@ actor SSHMonitorService {
             memoryUsagePercent: memory.usagePercent,
             memoryUsedBytes: memory.usedBytes,
             memoryTotalBytes: memory.totalBytes,
+            virtualMemoryUsagePercent: nil,
+            virtualMemoryUsedBytes: nil,
+            virtualMemoryTotalBytes: nil,
             diskUsagePercent: disk.usagePercent,
             diskUsedBytes: disk.usedBytes,
             diskTotalBytes: disk.totalBytes,
@@ -137,6 +140,7 @@ actor SSHMonitorService {
         guard let uptimeSeconds = values["uptime_seconds"].flatMap(Double.init) else {
             throw values["uptime_seconds"] == nil ? SSHMonitorParseError.missingField("uptime_seconds") : SSHMonitorParseError.invalidField("uptime_seconds")
         }
+        let swap = try parseOptionalSwapUsage(from: values)
 
         let totalBytes = totalKilobytes * 1_024
         let availableBytes = min(availableKilobytes * 1_024, totalBytes)
@@ -159,6 +163,9 @@ actor SSHMonitorService {
             memoryUsagePercent: clamp(memoryUsagePercent),
             memoryUsedBytes: usedBytes,
             memoryTotalBytes: totalBytes,
+            virtualMemoryUsagePercent: swap?.usagePercent,
+            virtualMemoryUsedBytes: swap?.usedBytes,
+            virtualMemoryTotalBytes: swap?.totalBytes,
             diskUsagePercent: clamp(diskUsagePercent),
             diskUsedBytes: diskUsedBytes,
             diskTotalBytes: diskTotalBytes,
@@ -166,6 +173,31 @@ actor SSHMonitorService {
             uptimeSeconds: uptimeSeconds,
             collectedAt: collectedAt
         )
+    }
+
+    private static func parseOptionalSwapUsage(
+        from values: [String: String]
+    ) throws -> (usedBytes: UInt64, totalBytes: UInt64, usagePercent: Double)? {
+        guard let rawTotal = values["swap_total_kb"],
+              let rawFree = values["swap_free_kb"] else {
+            return nil
+        }
+
+        guard let totalKilobytes = UInt64(rawTotal) else {
+            throw SSHMonitorParseError.invalidField("swap_total_kb")
+        }
+        guard let freeKilobytes = UInt64(rawFree) else {
+            throw SSHMonitorParseError.invalidField("swap_free_kb")
+        }
+        guard totalKilobytes > 0 else {
+            return nil
+        }
+
+        let totalBytes = totalKilobytes * 1_024
+        let freeBytes = min(freeKilobytes * 1_024, totalBytes)
+        let usedBytes = totalBytes >= freeBytes ? totalBytes - freeBytes : 0
+        let usagePercent = totalBytes == 0 ? 0 : (Double(usedBytes) / Double(totalBytes)) * 100
+        return (usedBytes, totalBytes, clamp(usagePercent))
     }
 
     private static func clamp(_ value: Double) -> Double {
@@ -311,6 +343,8 @@ actor SSHMonitorService {
 
     mem_total_kb="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)"
     mem_available_kb="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo || true)"
+    swap_total_kb="$(awk '/^SwapTotal:/ { print $2; exit }' /proc/meminfo || true)"
+    swap_free_kb="$(awk '/^SwapFree:/ { print $2; exit }' /proc/meminfo || true)"
     disk_total_kb="$(df -kP / | awk 'NR == 2 { print $2; exit }')"
     disk_used_kb="$(df -kP / | awk 'NR == 2 { print $3; exit }')"
 
@@ -322,6 +356,8 @@ actor SSHMonitorService {
         END { print free + buffers + cached }
       ' /proc/meminfo)"
     fi
+    swap_total_kb="${swap_total_kb:-0}"
+    swap_free_kb="${swap_free_kb:-0}"
 
     loadavg="$(cut -d ' ' -f 1-3 /proc/loadavg)"
     uptime_seconds="$(cut -d ' ' -f 1 /proc/uptime)"
@@ -354,6 +390,8 @@ actor SSHMonitorService {
     printf 'cpu_percent=%s\n' "$cpu_percent"
     printf 'mem_total_kb=%s\n' "$mem_total_kb"
     printf 'mem_available_kb=%s\n' "$mem_available_kb"
+    printf 'swap_total_kb=%s\n' "$swap_total_kb"
+    printf 'swap_free_kb=%s\n' "$swap_free_kb"
     printf 'disk_total_kb=%s\n' "$disk_total_kb"
     printf 'disk_used_kb=%s\n' "$disk_used_kb"
     printf 'loadavg=%s\n' "$loadavg"
