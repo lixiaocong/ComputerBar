@@ -156,7 +156,28 @@ if [ -f "$ICON_FILE" ] && [ -d "$APP_BUNDLE/Contents/PlugIns" ]; then
     done < <(find "$APP_BUNDLE/Contents/PlugIns" -depth -name "*.appex" -print)
 fi
 
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-WidgetDev}"
+resolve_sign_identity() {
+    if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+        printf '%s\n' "$CODESIGN_IDENTITY"
+        return
+    fi
+
+    # A development identity keeps a stable Team ID across rebuilds, so macOS
+    # does not treat every local install as a different app for data access.
+    local apple_development_identity
+    apple_development_identity="$(
+        security find-identity -v -p codesigning 2>/dev/null |
+            awk '/"Apple Development:/ { print $2; exit }'
+    )"
+
+    if [ -n "$apple_development_identity" ]; then
+        printf '%s\n' "$apple_development_identity"
+    else
+        printf '%s\n' "WidgetDev"
+    fi
+}
+
+SIGN_IDENTITY="$(resolve_sign_identity)"
 
 if [ -d "$APP_BUNDLE/Contents/PlugIns" ]; then
     while IFS= read -r appex; do
@@ -166,6 +187,16 @@ fi
 
 echo "==> Signing app bundle with '$SIGN_IDENTITY'"
 codesign --force --sign "$SIGN_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_BUNDLE"
+
+SIGNING_TEAM_ID="$(
+    codesign -dvv "$APP_BUNDLE" 2>&1 |
+        awk -F= '/^TeamIdentifier=/ { print $2; exit }'
+)"
+if [ -n "$SIGNING_TEAM_ID" ] && [ "$SIGNING_TEAM_ID" != "not set" ]; then
+    echo "==> Signed with stable Team ID $SIGNING_TEAM_ID"
+else
+    echo "WARNING: '$SIGN_IDENTITY' has no Team ID; macOS may request App Data access again after rebuilding."
+fi
 
 touch "$APP_BUNDLE"
 

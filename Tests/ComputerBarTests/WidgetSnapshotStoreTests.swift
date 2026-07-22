@@ -62,6 +62,24 @@ final class WidgetSnapshotStoreTests: XCTestCase {
 
         XCTAssertEqual(selectedSnapshot?.primaryAlias, "new")
     }
+
+    func testHostSnapshotWritesNeverTargetWidgetContainer() {
+        let widgetContainerFragment = "/Library/Containers/\(ComputerBarWidgetConstants.widgetBundleIdentifier)/"
+        let urls = WidgetSnapshotStore.writeSnapshotURLs(
+            fileManager: .default,
+            isWidgetExtension: false
+        )
+
+        XCTAssertFalse(urls.isEmpty)
+        XCTAssertTrue(urls.allSatisfy { !$0.standardizedFileURL.path.contains(widgetContainerFragment) })
+    }
+
+    func testAppGroupUsesStableTeamIdentifierPrefix() {
+        XCTAssertEqual(
+            WidgetSnapshotStore.appGroupIdentifier,
+            "CP22VZ6846.com.computerbar.app.shared"
+        )
+    }
 }
 
 private extension JSONEncoder {

@@ -51,13 +51,17 @@ Core behavior:
 
 ## Widget Snapshot Flow
 
-The widget works because the app now publishes the same snapshot to several locations instead of depending on one path:
+The app and widget share snapshots through paths each process is entitled to access:
 
-1. App-group `UserDefaults` under `group.com.computerbar.shared`
-2. App-group files
-3. Deterministic container paths for both the app and widget containers
-4. Legacy `~/Library/Application Support/ComputerBar/widget-snapshot.json`
-5. Localhost fallback from `LocalSnapshotServer` on port `61337`
+1. App-group files under `CP22VZ6846.com.computerbar.app.shared`
+2. Legacy `~/Library/Application Support/ComputerBar/widget-snapshot.json`
+3. Read-only legacy paths inside the widget's own sandbox
+4. Localhost fallback from `LocalSnapshotServer` on port `61337`
+
+The host app must never write to `~/Library/Containers/com.computerbar.app.widget` or open an
+unentitled legacy App Group. Current macOS versions treat that as another app's protected data and
+show an App Data permission prompt. Shared app-group `UserDefaults` is also intentionally avoided;
+the file channel is asynchronous and does not block startup.
 
 Important file:
 - `Sources/ComputerBarShared/WidgetSnapshotStore.swift`
@@ -76,6 +80,10 @@ Build flow:
 - Builds the app and widget extension
 - Re-signs the `.appex`
 - Re-signs the final `.app`
+
+The install script prefers an Apple Development identity with a stable Team ID. Do not replace it
+with a self-signed identity for routine local installs; changing the designated identity makes macOS
+treat rebuilt copies as a different app and can trigger permission prompts again.
 
 Common commands:
 
@@ -119,7 +127,6 @@ Snapshot files commonly used during debugging:
 
 ```text
 ~/Library/Application Support/ComputerBar/widget-snapshot.json
-~/Library/Group Containers/group.com.computerbar.shared/widget-snapshot.json
-~/Library/Group Containers/group.com.computerbar.shared/Library/Application Support/ComputerBar/widget-snapshot.json
-~/Library/Containers/com.computerbar.app.widget/Data/Library/Application Support/ComputerBar/widget-snapshot.json
+~/Library/Group Containers/CP22VZ6846.com.computerbar.app.shared/widget-snapshot.json
+~/Library/Group Containers/CP22VZ6846.com.computerbar.app.shared/Library/Application Support/ComputerBar/widget-snapshot.json
 ```

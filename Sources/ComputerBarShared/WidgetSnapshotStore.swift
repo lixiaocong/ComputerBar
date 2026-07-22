@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 public enum ComputerBarWidgetConstants {
     public static let appBundleIdentifier = "com.computerbar.app"
@@ -7,7 +8,6 @@ public enum ComputerBarWidgetConstants {
     public static let legacyStatusWidgetKind = "ComputerBarStatusWidget-2"
     public static let snapshotFilename = "widget-snapshot.json"
     public static let snapshotDirectoryName = "ComputerBar"
-    public static let snapshotDefaultsKey = "widgetSnapshotData"
     public static let localSnapshotServerPort: UInt16 = 61337
     public static let localSnapshotServerPath = "/widget-snapshot"
 }
@@ -176,12 +176,11 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
 }
 
 public enum WidgetSnapshotStore {
-    public static let appGroupIdentifier = "group.com.computerbar.shared"
-    private static let legacyAppGroupIdentifier = "group.com.sshbar.shared"
+    public static let appGroupIdentifier = "CP22VZ6846.com.computerbar.app.shared"
     private static let legacySnapshotDirectoryName = "SSHBar"
 
     public static var snapshotURL: URL {
-        writeSnapshotURLs.first ?? legacySnapshotURL
+        writeSnapshotURLs(fileManager: .default).first ?? legacySnapshotURL(fileManager: .default)
     }
 
     public static func load() throws -> WidgetSnapshot {
@@ -189,25 +188,7 @@ public enum WidgetSnapshotStore {
         var loadedSnapshots: [WidgetSnapshot] = []
         var lastError: Error?
 
-        if let sharedDefaults,
-           let data = sharedDefaults.data(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey) {
-            do {
-                loadedSnapshots.append(try decodeSnapshot(from: data))
-            } catch {
-                lastError = error
-            }
-        }
-
-        if let legacySharedDefaults,
-           let data = legacySharedDefaults.data(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey) {
-            do {
-                loadedSnapshots.append(try decodeSnapshot(from: data))
-            } catch {
-                lastError = error
-            }
-        }
-
-        for url in readSnapshotURLs where fileManager.fileExists(atPath: url.path) {
+        for url in readSnapshotURLs(fileManager: fileManager) where fileManager.fileExists(atPath: url.path) {
             do {
                 let data = try Data(contentsOf: url)
                 loadedSnapshots.append(try decodeSnapshot(from: data))
@@ -233,13 +214,7 @@ public enum WidgetSnapshotStore {
         var savedAtLeastOnce = false
         var lastError: Error?
 
-        if let sharedDefaults {
-            sharedDefaults.set(data, forKey: ComputerBarWidgetConstants.snapshotDefaultsKey)
-            sharedDefaults.synchronize()
-            savedAtLeastOnce = true
-        }
-
-        for url in writeSnapshotURLs {
+        for url in writeSnapshotURLs(fileManager: fileManager) {
             do {
                 let directoryURL = url.deletingLastPathComponent()
                 try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -257,9 +232,7 @@ public enum WidgetSnapshotStore {
 
     public static func delete() throws {
         let fileManager = FileManager.default
-        sharedDefaults?.removeObject(forKey: ComputerBarWidgetConstants.snapshotDefaultsKey)
-        sharedDefaults?.synchronize()
-        for url in writeSnapshotURLs where fileManager.fileExists(atPath: url.path) {
+        for url in writeSnapshotURLs(fileManager: fileManager) where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
     }
@@ -277,14 +250,6 @@ public enum WidgetSnapshotStore {
         return decoder
     }()
 
-    private static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupIdentifier)
-    }
-
-    private static var legacySharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: legacyAppGroupIdentifier)
-    }
-
     private static func decodeSnapshot(from data: Data) throws -> WidgetSnapshot {
         try decoder.decode(WidgetSnapshot.self, from: data)
     }
@@ -295,16 +260,19 @@ public enum WidgetSnapshotStore {
         }
     }
 
-    private static var writeSnapshotURLs: [URL] {
+    static func writeSnapshotURLs(
+        fileManager: FileManager,
+        isWidgetExtension: Bool = Self.isWidgetExtension
+    ) -> [URL] {
         var urls: [URL] = []
 
-        urls.append(contentsOf: appGroupSnapshotURLs(for: appGroupIdentifier))
+        urls.append(contentsOf: appGroupSnapshotURLs(fileManager: fileManager))
 
         guard !isWidgetExtension else {
             return uniqueURLs(urls)
         }
 
-        if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        if let ownAppSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             urls.append(
                 ownAppSupportURL
                     .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
@@ -312,40 +280,29 @@ public enum WidgetSnapshotStore {
             )
         }
 
-        urls.append(legacySnapshotURL)
-        urls.append(contentsOf: widgetSandboxSnapshotURLs)
+        urls.append(legacySnapshotURL(fileManager: fileManager))
 
         return uniqueURLs(urls)
     }
 
-    private static var readSnapshotURLs: [URL] {
+    private static func readSnapshotURLs(fileManager: FileManager) -> [URL] {
         if isWidgetExtension {
-            return uniqueURLs(widgetLocalSnapshotURLs + appGroupSnapshotURLs(for: appGroupIdentifier))
+            return uniqueURLs(
+                widgetLocalSnapshotURLs(fileManager: fileManager)
+                    + appGroupSnapshotURLs(fileManager: fileManager)
+            )
         }
 
-        return uniqueURLs(writeSnapshotURLs + legacyCandidateSnapshotURLs)
+        return uniqueURLs(
+            writeSnapshotURLs(fileManager: fileManager)
+                + legacyCandidateSnapshotURLs(fileManager: fileManager)
+        )
     }
 
-    /// Paths inside the widget extension's sandbox container, writable by the unsandboxed main app.
-    private static var widgetSandboxSnapshotURLs: [URL] {
-        let containerPath = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Containers", directoryHint: .isDirectory)
-            .appending(path: ComputerBarWidgetConstants.widgetBundleIdentifier, directoryHint: .isDirectory)
-            .appending(path: "Data", directoryHint: .isDirectory)
-
-        return [
-            containerPath
-                .appending(path: "Library/Application Support", directoryHint: .isDirectory)
-                .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
-                .appending(path: ComputerBarWidgetConstants.snapshotFilename),
-            containerPath
-                .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-        ]
-    }
-
-    /// Paths the widget extension can read from within its own sandbox.
-    private static var widgetLocalSnapshotURLs: [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+    /// Legacy paths the widget extension can read from within its own sandbox.
+    /// The host app must never write here; doing so triggers macOS App Data access.
+    private static func widgetLocalSnapshotURLs(fileManager: FileManager) -> [URL] {
+        let home = fileManager.homeDirectoryForCurrentUser
         return [
             home
                 .appending(path: "Library/Application Support", directoryHint: .isDirectory)
@@ -356,14 +313,14 @@ public enum WidgetSnapshotStore {
         ]
     }
 
-    private static var legacyCandidateSnapshotURLs: [URL] {
+    private static func legacyCandidateSnapshotURLs(fileManager: FileManager) -> [URL] {
         guard !isWidgetExtension else {
             return []
         }
 
         var urls: [URL] = []
 
-        if let ownAppSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        if let ownAppSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             urls.append(
                 ownAppSupportURL
                     .appending(path: legacySnapshotDirectoryName, directoryHint: .isDirectory)
@@ -371,24 +328,12 @@ public enum WidgetSnapshotStore {
             )
         }
 
-        if let sharedContainerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: legacyAppGroupIdentifier) {
-            urls.append(
-                sharedContainerURL
-                    .appending(path: "Library/Application Support", directoryHint: .isDirectory)
-                    .appending(path: legacySnapshotDirectoryName, directoryHint: .isDirectory)
-                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-            )
-            urls.append(
-                sharedContainerURL
-                    .appending(path: ComputerBarWidgetConstants.snapshotFilename)
-            )
-        }
-
         return urls
     }
 
-    private static func appGroupSnapshotURLs(for appGroupIdentifier: String) -> [URL] {
-        guard let sharedContainerURL = FileManager.default.containerURL(
+    private static func appGroupSnapshotURLs(fileManager: FileManager) -> [URL] {
+        guard processHasAppGroupEntitlement,
+              let sharedContainerURL = fileManager.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) else {
             return []
@@ -404,8 +349,20 @@ public enum WidgetSnapshotStore {
         ]
     }
 
-    private static var legacySnapshotURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+    private static var processHasAppGroupEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let groups = SecTaskCopyValueForEntitlement(
+                task,
+                "com.apple.security.application-groups" as CFString,
+                nil
+              ) as? [String] else {
+            return false
+        }
+        return groups.contains(appGroupIdentifier)
+    }
+
+    private static func legacySnapshotURL(fileManager: FileManager) -> URL {
+        fileManager.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support", directoryHint: .isDirectory)
             .appending(path: ComputerBarWidgetConstants.snapshotDirectoryName, directoryHint: .isDirectory)
             .appending(path: ComputerBarWidgetConstants.snapshotFilename)
