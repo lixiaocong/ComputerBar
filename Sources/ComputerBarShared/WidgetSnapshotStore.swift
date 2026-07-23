@@ -176,7 +176,7 @@ public struct WidgetHostSnapshot: Codable, Equatable, Identifiable {
 }
 
 public enum WidgetSnapshotStore {
-    public static let appGroupIdentifier = "CP22VZ6846.com.computerbar.app.shared"
+    private static let appGroupIdentifierSuffix = ".com.computerbar.app.shared"
     private static let legacySnapshotDirectoryName = "SSHBar"
 
     public static var snapshotURL: URL {
@@ -332,7 +332,7 @@ public enum WidgetSnapshotStore {
     }
 
     private static func appGroupSnapshotURLs(fileManager: FileManager) -> [URL] {
-        guard processHasAppGroupEntitlement,
+        guard let appGroupIdentifier = processAppGroupIdentifier,
               let sharedContainerURL = fileManager.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupIdentifier
         ) else {
@@ -349,16 +349,20 @@ public enum WidgetSnapshotStore {
         ]
     }
 
-    private static var processHasAppGroupEntitlement: Bool {
+    private static var processAppGroupIdentifier: String? {
         guard let task = SecTaskCreateFromSelf(nil),
               let groups = SecTaskCopyValueForEntitlement(
                 task,
                 "com.apple.security.application-groups" as CFString,
                 nil
               ) as? [String] else {
-            return false
+            return nil
         }
-        return groups.contains(appGroupIdentifier)
+        return appGroupIdentifier(in: groups)
+    }
+
+    static func appGroupIdentifier(in signedGroups: [String]) -> String? {
+        signedGroups.first { $0.hasSuffix(appGroupIdentifierSuffix) }
     }
 
     private static func legacySnapshotURL(fileManager: FileManager) -> URL {

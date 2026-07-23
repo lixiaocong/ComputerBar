@@ -53,7 +53,7 @@ Core behavior:
 
 The app and widget share snapshots through paths each process is entitled to access:
 
-1. App-group files under `CP22VZ6846.com.computerbar.app.shared`
+1. App-group files under `<local Team ID>.com.computerbar.app.shared`
 2. Legacy `~/Library/Application Support/ComputerBar/widget-snapshot.json`
 3. Read-only legacy paths inside the widget's own sandbox
 4. Localhost fallback from `LocalSnapshotServer` on port `61337`
@@ -71,8 +71,8 @@ Important operational detail:
 
 ## Build
 
-Build script:
-- `scripts/build-app.sh`
+Build and install script:
+- `scripts/install-app.sh`
 
 Build flow:
 - Generates icons
@@ -85,29 +85,28 @@ The install script prefers an Apple Development identity with a stable Team ID. 
 with a self-signed identity for routine local installs; changing the designated identity makes macOS
 treat rebuilt copies as a different app and can trigger permission prompts again.
 
+The repository must not contain a real Team ID, certificate owner, or signing email. During a local
+build, `scripts/install-app.sh` derives the Team ID from the selected signing identity and generates
+the final app-group entitlements under the ignored `build/.signing` directory. Runtime code discovers
+the app-group identifier from its signed entitlements.
+
 Common commands:
 
 ```bash
 swift test
-./scripts/build-app.sh
+CODESIGN_IDENTITY="<local identity hash or name>" ./scripts/install-app.sh
 ```
 
-Output bundle:
-
-```bash
-build/ComputerBar.app
-```
+Omit `CODESIGN_IDENTITY` to select the first local Apple Development identity automatically.
 
 ## Install
 
-Use a clean replace when updating the installed app. Do not merge-copy over an older bundle.
+The install script performs a clean replacement; do not merge-copy over an older bundle.
 
 Preferred install flow:
 
 ```bash
-rm -rf /Applications/ComputerBar.app
-cp -R build/ComputerBar.app /Applications/
-open -a /Applications/ComputerBar.app
+./scripts/install-app.sh
 ```
 
 Reason:
@@ -118,7 +117,7 @@ Reason:
 If the widget shows `No Snapshot Yet`:
 
 1. Confirm the app is actually running.
-2. Rebuild with `./scripts/build-app.sh`.
+2. Rebuild with `./scripts/install-app.sh`.
 3. Clean-replace `/Applications/ComputerBar.app`.
 4. Launch the new app once.
 5. Remove and re-add the widget.
@@ -127,6 +126,6 @@ Snapshot files commonly used during debugging:
 
 ```text
 ~/Library/Application Support/ComputerBar/widget-snapshot.json
-~/Library/Group Containers/CP22VZ6846.com.computerbar.app.shared/widget-snapshot.json
-~/Library/Group Containers/CP22VZ6846.com.computerbar.app.shared/Library/Application Support/ComputerBar/widget-snapshot.json
+~/Library/Group Containers/<local Team ID>.com.computerbar.app.shared/widget-snapshot.json
+~/Library/Group Containers/<local Team ID>.com.computerbar.app.shared/Library/Application Support/ComputerBar/widget-snapshot.json
 ```

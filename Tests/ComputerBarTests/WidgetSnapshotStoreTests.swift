@@ -74,10 +74,23 @@ final class WidgetSnapshotStoreTests: XCTestCase {
         XCTAssertTrue(urls.allSatisfy { !$0.standardizedFileURL.path.contains(widgetContainerFragment) })
     }
 
-    func testAppGroupUsesStableTeamIdentifierPrefix() {
+    func testAppGroupIdentifierIsReadFromSignedEntitlements() {
         XCTAssertEqual(
-            WidgetSnapshotStore.appGroupIdentifier,
-            "CP22VZ6846.com.computerbar.app.shared"
+            WidgetSnapshotStore.appGroupIdentifier(
+                in: [
+                    "LOCALTEAM.example.unrelated",
+                    "LOCALTEAM.com.computerbar.app.shared"
+                ]
+            ),
+            "LOCALTEAM.com.computerbar.app.shared"
+        )
+    }
+
+    func testAppGroupIdentifierRejectsUnrelatedEntitlements() {
+        XCTAssertNil(
+            WidgetSnapshotStore.appGroupIdentifier(
+                in: ["LOCALTEAM.example.unrelated"]
+            )
         )
     }
 }

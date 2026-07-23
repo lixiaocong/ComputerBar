@@ -18,6 +18,9 @@ ICON_SCRIPT="$PROJECT_DIR/scripts/generate-icons.swift"
 ICON_FILE="$PROJECT_DIR/Resources/AppIcon.icns"
 APP_ENTITLEMENTS="$PROJECT_DIR/Resources/${APP_NAME}.entitlements"
 WIDGET_ENTITLEMENTS="$PROJECT_DIR/Resources/${APP_NAME}Widget.entitlements"
+GENERATED_ENTITLEMENTS_DIR="$BUILD_DIR/.signing"
+GENERATED_APP_ENTITLEMENTS="$GENERATED_ENTITLEMENTS_DIR/${APP_NAME}.entitlements"
+GENERATED_WIDGET_ENTITLEMENTS="$GENERATED_ENTITLEMENTS_DIR/${APP_NAME}Widget.entitlements"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 PLISTBUDDY="/usr/libexec/PlistBuddy"
 BUILD_VERSION="$(date +%Y%m%d%H%M%S)"
@@ -173,29 +176,70 @@ resolve_sign_identity() {
     if [ -n "$apple_development_identity" ]; then
         printf '%s\n' "$apple_development_identity"
     else
-        printf '%s\n' "WidgetDev"
+        printf '%s\n' "-"
     fi
 }
 
 SIGN_IDENTITY="$(resolve_sign_identity)"
 
+resolve_signing_team_id() {
+    local probe_path="$GENERATED_ENTITLEMENTS_DIR/signing-probe"
+    mkdir -p "$GENERATED_ENTITLEMENTS_DIR"
+    cp /usr/bin/true "$probe_path"
+    codesign --force --sign "$SIGN_IDENTITY" "$probe_path" >/dev/null 2>&1
+    codesign -dvv "$probe_path" 2>&1 |
+        awk -F= '/^TeamIdentifier=/ { print $2; exit }'
+    rm -f "$probe_path"
+}
+
+prepare_local_entitlements() {
+    local app_group_identifier="$1"
+
+    rm -rf "$GENERATED_ENTITLEMENTS_DIR"
+    mkdir -p "$GENERATED_ENTITLEMENTS_DIR"
+    cp "$APP_ENTITLEMENTS" "$GENERATED_APP_ENTITLEMENTS"
+    cp "$WIDGET_ENTITLEMENTS" "$GENERATED_WIDGET_ENTITLEMENTS"
+
+    if [ -n "$app_group_identifier" ]; then
+        "$PLISTBUDDY" -c "Add :com.apple.security.application-groups array" "$GENERATED_APP_ENTITLEMENTS"
+        "$PLISTBUDDY" -c "Add :com.apple.security.application-groups:0 string $app_group_identifier" "$GENERATED_APP_ENTITLEMENTS"
+        "$PLISTBUDDY" -c "Add :com.apple.security.application-groups array" "$GENERATED_WIDGET_ENTITLEMENTS"
+        "$PLISTBUDDY" -c "Add :com.apple.security.application-groups:0 string $app_group_identifier" "$GENERATED_WIDGET_ENTITLEMENTS"
+    fi
+
+    plutil -lint "$GENERATED_APP_ENTITLEMENTS" "$GENERATED_WIDGET_ENTITLEMENTS" >/dev/null
+}
+
+SIGNING_TEAM_ID="$(resolve_signing_team_id)"
+if [ -n "$SIGNING_TEAM_ID" ] && [ "$SIGNING_TEAM_ID" != "not set" ]; then
+    APP_GROUP_IDENTIFIER="${SIGNING_TEAM_ID}.com.computerbar.app.shared"
+    echo "==> Preparing local App Group entitlement from signing Team ID"
+else
+    APP_GROUP_IDENTIFIER=""
+    echo "WARNING: Local signing identity has no Team ID; building without App Group sharing."
+fi
+prepare_local_entitlements "$APP_GROUP_IDENTIFIER"
+
 if [ -d "$APP_BUNDLE/Contents/PlugIns" ]; then
     while IFS= read -r appex; do
-        codesign --force --sign "$SIGN_IDENTITY" --entitlements "$WIDGET_ENTITLEMENTS" "$appex"
+        codesign --force --sign "$SIGN_IDENTITY" --entitlements "$GENERATED_WIDGET_ENTITLEMENTS" "$appex"
     done < <(find "$APP_BUNDLE/Contents/PlugIns" -depth -name "*.appex" -print)
 fi
 
-echo "==> Signing app bundle with '$SIGN_IDENTITY'"
-codesign --force --sign "$SIGN_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_BUNDLE"
+echo "==> Signing app bundle with local identity"
+codesign --force --sign "$SIGN_IDENTITY" --entitlements "$GENERATED_APP_ENTITLEMENTS" "$APP_BUNDLE"
 
-SIGNING_TEAM_ID="$(
+ACTUAL_SIGNING_TEAM_ID="$(
     codesign -dvv "$APP_BUNDLE" 2>&1 |
         awk -F= '/^TeamIdentifier=/ { print $2; exit }'
 )"
-if [ -n "$SIGNING_TEAM_ID" ] && [ "$SIGNING_TEAM_ID" != "not set" ]; then
-    echo "==> Signed with stable Team ID $SIGNING_TEAM_ID"
+if [ -n "$SIGNING_TEAM_ID" ] && [ "$ACTUAL_SIGNING_TEAM_ID" = "$SIGNING_TEAM_ID" ]; then
+    echo "==> Signed with stable local Team ID"
+elif [ -z "$SIGNING_TEAM_ID" ] || [ "$SIGNING_TEAM_ID" = "not set" ]; then
+    echo "WARNING: Local signing identity has no Team ID; macOS App Group sharing is unavailable."
 else
-    echo "WARNING: '$SIGN_IDENTITY' has no Team ID; macOS may request App Data access again after rebuilding."
+    echo "ERROR: Signing Team ID changed while building."
+    exit 1
 fi
 
 touch "$APP_BUNDLE"

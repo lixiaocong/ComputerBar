@@ -56,6 +56,8 @@ Build, install, and launch the app:
 ```
 
 The script builds `ComputerBar.app`, installs it to `/Applications/ComputerBar.app`, registers the widget extension, and launches the app.
+It selects a local Apple Development identity automatically; set `CODESIGN_IDENTITY` in the local
+shell to override it. The Team ID is derived during the build and is never stored in the repository.
 
 ## Usage
 
