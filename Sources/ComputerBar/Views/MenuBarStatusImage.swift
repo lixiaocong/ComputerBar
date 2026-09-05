@@ -5,6 +5,7 @@ enum MenuBarStatusImage {
         let label: String
         let cpuPercent: Double?
         let memoryPercent: Double?
+        let virtualMemoryPercent: Double?
         let diskPercent: Double?
         let isError: Bool
 
@@ -12,18 +13,24 @@ enum MenuBarStatusImage {
             label: String,
             cpuPercent: Double? = nil,
             memoryPercent: Double? = nil,
+            virtualMemoryPercent: Double? = nil,
             diskPercent: Double? = nil,
             isError: Bool = false
         ) {
             self.label = label
             self.cpuPercent = cpuPercent
             self.memoryPercent = memoryPercent
+            self.virtualMemoryPercent = virtualMemoryPercent
             self.diskPercent = diskPercent
             self.isError = isError
         }
 
         var percents: [Double?] {
-            [cpuPercent, memoryPercent, diskPercent]
+            if virtualMemoryPercent != nil {
+                return [cpuPercent, memoryPercent, virtualMemoryPercent, diskPercent]
+            }
+
+            return [cpuPercent, memoryPercent, diskPercent]
         }
     }
 
@@ -157,19 +164,31 @@ enum MenuBarStatusImage {
         in rect: NSRect,
         bar: Bar
     ) {
-        let stackHeight = metricBarHeight * 3 + metricBarGap * 2
+        let percents = bar.percents
+        let barHeight = metricBarHeight(for: percents.count)
+        let barGap = metricBarGap(for: percents.count)
+        let stackHeight = barHeight * CGFloat(percents.count)
+            + barGap * CGFloat(max(0, percents.count - 1))
         let startY = (rect.height - stackHeight) / 2
 
-        for (index, percent) in bar.percents.enumerated() {
-            let y = startY + CGFloat(2 - index) * (metricBarHeight + metricBarGap)
+        for (index, percent) in percents.enumerated() {
+            let y = startY + CGFloat(percents.count - 1 - index) * (barHeight + barGap)
             let metricRect = NSRect(
                 x: rect.minX,
                 y: y,
                 width: rect.width,
-                height: metricBarHeight
+                height: barHeight
             )
             drawBar(in: metricRect, percent: percent, isError: bar.isError)
         }
+    }
+
+    private static func metricBarHeight(for metricCount: Int) -> CGFloat {
+        metricCount > 3 ? 3 : metricBarHeight
+    }
+
+    private static func metricBarGap(for metricCount: Int) -> CGFloat {
+        metricCount > 3 ? 1 : metricBarGap
     }
 
     private static func drawBar(

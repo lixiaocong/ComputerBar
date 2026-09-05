@@ -349,7 +349,7 @@ public sealed class RefreshCoordinator(
         var state = StatusStateFor(host);
         if (state.Status is { } status)
         {
-            return $"{host.DisplayName}: CPU {status.CpuUsageText}, memory {status.MemoryUsageText}, disk {status.DiskUsageText}";
+            return $"{host.DisplayName}: {status.UsageSummary}";
         }
 
         if (state.ErrorMessage is not null)

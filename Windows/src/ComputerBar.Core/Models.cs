@@ -46,6 +46,9 @@ public sealed record NodeStatus(
     double MemoryUsagePercent,
     ulong MemoryUsedBytes,
     ulong MemoryTotalBytes,
+    double? VirtualMemoryUsagePercent,
+    ulong? VirtualMemoryUsedBytes,
+    ulong? VirtualMemoryTotalBytes,
     double DiskUsagePercent,
     ulong DiskUsedBytes,
     ulong DiskTotalBytes,
@@ -56,14 +59,43 @@ public sealed record NodeStatus(
     public string Id => Host.Id;
     public string CpuUsageText => PercentText(CpuUsagePercent);
     public string MemoryUsageText => PercentText(MemoryUsagePercent);
+    public string VirtualMemoryUsageText => VirtualMemoryUsagePercent is { } percent ? PercentText(percent) : "--";
     public string DiskUsageText => PercentText(DiskUsagePercent);
-    public double HighlightUsagePercent => Math.Max(CpuUsagePercent, Math.Max(MemoryUsagePercent, DiskUsagePercent));
+    public bool HasVirtualMemoryUsage => VirtualMemoryUsagePercent is not null;
+    public double HighlightUsagePercent => Math.Max(
+        CpuUsagePercent,
+        Math.Max(MemoryUsagePercent, Math.Max(VirtualMemoryUsagePercent ?? 0, DiskUsagePercent)));
 
     public string MemoryUsageSummary =>
         $"{FormatBytes(MemoryUsedBytes)} / {FormatBytes(MemoryTotalBytes)}";
 
+    public string VirtualMemoryUsageSummary =>
+        VirtualMemoryUsedBytes is { } used && VirtualMemoryTotalBytes is { } total
+            ? $"{FormatBytes(used)} / {FormatBytes(total)}"
+            : "--";
+
     public string DiskUsageSummary =>
         $"{FormatBytes(DiskUsedBytes)} / {FormatBytes(DiskTotalBytes)}";
+
+    public string UsageSummary
+    {
+        get
+        {
+            var segments = new List<string>
+            {
+                $"CPU {CpuUsageText}",
+                $"memory {MemoryUsageText}"
+            };
+
+            if (HasVirtualMemoryUsage)
+            {
+                segments.Add($"virtual memory {VirtualMemoryUsageText}");
+            }
+
+            segments.Add($"disk {DiskUsageText}");
+            return string.Join(", ", segments);
+        }
+    }
 
     public string LoadAverageText => LoadAverages.Count == 0
         ? "--"

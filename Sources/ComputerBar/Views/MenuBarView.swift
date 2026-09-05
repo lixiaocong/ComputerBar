@@ -165,6 +165,16 @@ struct MenuBarView: View {
                     tint: usageTint(for: status.memoryUsagePercent)
                 )
 
+                if status.hasVirtualMemoryUsage {
+                    metricBlock(
+                        title: "Virtual Memory Usage",
+                        percentText: status.virtualMemoryUsageText,
+                        value: status.virtualMemoryUsagePercent ?? 0,
+                        detail: status.virtualMemoryUsageSummary,
+                        tint: usageTint(for: status.virtualMemoryUsagePercent ?? 0)
+                    )
+                }
+
                 metricBlock(
                     title: "Disk Usage",
                     percentText: status.diskUsageText,

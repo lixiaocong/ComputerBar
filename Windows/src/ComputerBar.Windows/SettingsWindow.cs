@@ -297,7 +297,7 @@ public sealed class SettingsWindow : Window
     {
         if (state.Status is { } status)
         {
-            return $"CPU {status.CpuUsageText}, memory {status.MemoryUsageText}, disk {status.DiskUsageText}";
+            return status.UsageSummary;
         }
 
         if (state.ErrorMessage is not null)

@@ -303,6 +303,10 @@ public sealed class PopoverWindow : Window
         {
             panel.Children.Add(MetricBlock("CPU Usage", status.CpuUsageText, status.CpuUsagePercent, state.Host.IsLocal ? "Sampled from Windows system times" : "Sampled from /proc/stat"));
             panel.Children.Add(MetricBlock("Memory Usage", status.MemoryUsageText, status.MemoryUsagePercent, status.MemoryUsageSummary));
+            if (status.HasVirtualMemoryUsage)
+            {
+                panel.Children.Add(MetricBlock("Virtual Memory Usage", status.VirtualMemoryUsageText, status.VirtualMemoryUsagePercent ?? 0, status.VirtualMemoryUsageSummary));
+            }
             panel.Children.Add(MetricBlock("Disk Usage", status.DiskUsageText, status.DiskUsagePercent, status.DiskUsageSummary));
             panel.Children.Add(DetailRow("Load Avg", status.LoadAverageText));
             panel.Children.Add(DetailRow("Uptime", status.UptimeText));

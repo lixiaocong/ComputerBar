@@ -149,6 +149,12 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
                     memoryUsagePercent: 63,
                     memoryUsedBytes: 6_764_298_240,
                     memoryTotalBytes: 10_737_418_240,
+                    virtualMemoryUsagePercent: 25,
+                    virtualMemoryUsedBytes: 1_073_741_824,
+                    virtualMemoryTotalBytes: 4_294_967_296,
+                    diskUsagePercent: 72,
+                    diskUsedBytes: 193_273_528_320,
+                    diskTotalBytes: 268_435_456_000,
                     loadAverages: [0.42, 0.37, 0.29],
                     uptimeSeconds: 86_400,
                     updatedAt: .now,
@@ -161,6 +167,9 @@ struct ComputerBarWidgetProvider: AppIntentTimelineProvider {
                     memoryUsagePercent: 41,
                     memoryUsedBytes: 2_147_483_648,
                     memoryTotalBytes: 8_589_934_592,
+                    diskUsagePercent: 35,
+                    diskUsedBytes: 96_636_764_160,
+                    diskTotalBytes: 274_877_906_944,
                     loadAverages: [0.09, 0.11, 0.13],
                     uptimeSeconds: 43_200,
                     updatedAt: .now,
@@ -222,8 +231,10 @@ struct ComputerBarWidgetEntryView: View {
     let entry: ComputerBarWidgetEntry
 
     var body: some View {
+        let accent = entry.snapshot.flatMap { selectedHost(in: $0) }.map(hostAccent(for:)) ?? palette.accent
+
         ZStack {
-            widgetBackground
+            widgetBackground(accent: accent)
 
             VStack(alignment: .leading, spacing: 0) {
                 if let snapshot = entry.snapshot {
@@ -238,7 +249,7 @@ struct ComputerBarWidgetEntryView: View {
         }
         .foregroundStyle(palette.primaryText)
         .containerBackground(for: .widget) {
-            widgetBackground
+            widgetBackground(accent: accent)
         }
     }
 
@@ -257,12 +268,10 @@ struct ComputerBarWidgetEntryView: View {
     }
 
     private func mediumHostView(_ host: WidgetHostSnapshot, snapshot: WidgetSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            summaryHeader(
-                title: host.widgetTitle,
-                supportingText: host.endpointDescription,
-                refreshText: snapshot.lastRefreshAt?.formatted(date: .omitted, time: .shortened)
-            )
+        let accent = hostAccent(for: host)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            summaryHeader(host: host, accent: accent)
 
             if let errorMessage = host.errorMessage {
                 Text(errorMessage)
@@ -270,22 +279,101 @@ struct ComputerBarWidgetEntryView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                HStack(spacing: 10) {
-                    metricCard(title: "CPU", value: host.cpuUsagePercent, text: host.cpuUsageText)
-                    metricCard(title: "Mem", value: host.memoryUsagePercent, text: host.memoryUsageText)
-                }
-
-                HStack(spacing: 6) {
-                    detailBlock(label: "Load", value: host.loadAverageShort)
-                    detailBlock(label: "Uptime", value: host.uptimeText)
-                    detailBlock(label: "Updated", value: host.updatedAtText)
-                }
+                metricRows(for: host)
             }
 
             Spacer(minLength: 0)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func metricRows(for host: WidgetHostSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            metricRow(
+                title: "CPU Usage",
+                value: host.cpuUsagePercent,
+                percentText: host.cpuUsageText,
+                detail: cpuDetail(for: host)
+            )
+
+            metricRow(
+                title: "Memory Usage",
+                value: host.memoryUsagePercent,
+                percentText: host.memoryUsageText,
+                detail: host.memoryUsageSummary
+            )
+
+            if host.hasVirtualMemoryUsage {
+                metricRow(
+                    title: "Virtual Memory",
+                    value: host.virtualMemoryUsagePercent,
+                    percentText: host.virtualMemoryUsageText,
+                    detail: host.virtualMemoryUsageSummary
+                )
+            }
+
+            metricRow(
+                title: "Disk Usage",
+                value: host.diskUsagePercent,
+                percentText: host.diskUsageText,
+                detail: host.diskUsageSummary
+            )
+        }
+    }
+
+    private func metricRow(
+        title: String,
+        value: Double?,
+        percentText: String,
+        detail: String
+    ) -> some View {
+        let tint = usageTint(for: value)
+
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(palette.primaryText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                if detail != "--" {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(palette.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                }
+
+                Spacer(minLength: 4)
+
+                Text(percentText)
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+            }
+
+            usageBar(value: value, tint: tint)
+        }
+    }
+
+    private func usageBar(value: Double?, tint: Color) -> some View {
+        let progress = min(max(value ?? 0, 0), 100) / 100
+
+        return GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(palette.track)
+
+                Capsule()
+                    .fill(tint)
+                    .frame(width: max(3, proxy.size.width * progress))
+            }
+        }
+        .frame(height: 5)
     }
 
     private func metricCard(title: String, value: Double?, text: String) -> some View {
@@ -330,31 +418,38 @@ struct ComputerBarWidgetEntryView: View {
         }
     }
 
-    private func summaryHeader(title: String, supportingText: String?, refreshText: String?) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
+    private func summaryHeader(host: WidgetHostSnapshot, accent: Color) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(host.widgetTitle)
+                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
-                if let supportingText {
-                    Text(supportingText)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(palette.secondaryText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
+                Text(host.endpointDescription)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
             }
+            .layoutPriority(1)
 
             Spacer(minLength: 0)
 
-            if let refreshText {
-                Text(refreshText)
-                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
+            VStack(alignment: .trailing, spacing: -1) {
+                Text(host.cpuUsageText)
+                    .font(.system(.title, design: .rounded).weight(.heavy))
+                    .monospacedDigit()
+                    .foregroundStyle(usageTint(for: host.cpuUsagePercent))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                Text("cpu")
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(palette.secondaryText)
                     .lineLimit(1)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -406,10 +501,33 @@ struct ComputerBarWidgetEntryView: View {
         return primaryHost(in: snapshot)
     }
 
-    private var widgetBackground: some View {
+    private func hostAccent(for host: WidgetHostSnapshot) -> Color {
+        isLocalHost(host)
+            ? Color(red: 0.02, green: 0.64, blue: 0.70)
+            : Color(red: 0.05, green: 0.42, blue: 0.92)
+    }
+
+    private func cpuDetail(for host: WidgetHostSnapshot) -> String {
+        isLocalHost(host) ? "Sampled from macOS host statistics" : "Sampled from /proc/stat"
+    }
+
+    private func isLocalHost(_ host: WidgetHostSnapshot) -> Bool {
+        host.alias.hasPrefix("__local__") || host.widgetTitle == "This Mac"
+    }
+
+    private func widgetBackground(accent: Color) -> some View {
         ZStack {
             LinearGradient(
                 colors: [palette.backgroundTop, palette.backgroundBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            LinearGradient(
+                colors: [
+                    accent.opacity(colorScheme == .dark ? 0.20 : 0.12),
+                    accent.opacity(colorScheme == .dark ? 0.08 : 0.04)
+                ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -436,6 +554,8 @@ private struct WidgetPalette {
     let pillBackground: Color
     let primaryText: Color
     let secondaryText: Color
+    let track: Color
+    let accent: Color
 
     init(colorScheme: ColorScheme) {
         if colorScheme == .dark {
@@ -444,12 +564,16 @@ private struct WidgetPalette {
             pillBackground = Color.white.opacity(0.12)
             primaryText = Color.white.opacity(0.98)
             secondaryText = Color.white.opacity(0.78)
+            track = Color.white.opacity(0.22)
+            accent = Color(red: 0.38, green: 0.72, blue: 1.0)
         } else {
             backgroundTop = Color(red: 0.985, green: 0.988, blue: 0.995)
             backgroundBottom = Color(red: 0.945, green: 0.956, blue: 0.976)
             pillBackground = Color.white.opacity(0.92)
             primaryText = Color(red: 0.10, green: 0.16, blue: 0.23)
             secondaryText = Color(red: 0.31, green: 0.39, blue: 0.49)
+            track = Color.black.opacity(0.16)
+            accent = Color(red: 0.05, green: 0.42, blue: 0.92)
         }
     }
 }

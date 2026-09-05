@@ -43,6 +43,7 @@ public sealed class NodeMonitorService : INodeMonitorService
         var diskTotalKilobytes = ReadUInt64(values, "disk_total_kb");
         var diskUsedKilobytes = ReadUInt64(values, "disk_used_kb");
         var uptimeSeconds = ReadDouble(values, "uptime_seconds");
+        var swap = ReadOptionalSwapUsage(values);
 
         var memoryTotalBytes = totalKilobytes * 1024;
         var availableBytes = Math.Min(availableKilobytes * 1024, memoryTotalBytes);
@@ -71,6 +72,9 @@ public sealed class NodeMonitorService : INodeMonitorService
             Clamp(memoryUsagePercent),
             memoryUsedBytes,
             memoryTotalBytes,
+            swap?.UsagePercent,
+            swap?.UsedBytes,
+            swap?.TotalBytes,
             Clamp(diskUsagePercent),
             diskUsedBytes,
             diskTotalBytes,
@@ -113,6 +117,9 @@ public sealed class NodeMonitorService : INodeMonitorService
             memory.UsagePercent,
             memory.UsedBytes,
             memory.TotalBytes,
+            null,
+            null,
+            null,
             disk.UsagePercent,
             disk.UsedBytes,
             disk.TotalBytes,
@@ -178,6 +185,39 @@ public sealed class NodeMonitorService : INodeMonitorService
         }
 
         return parsed;
+    }
+
+    private static (ulong UsedBytes, ulong TotalBytes, double UsagePercent)? ReadOptionalSwapUsage(
+        IReadOnlyDictionary<string, string> values)
+    {
+        if (!values.TryGetValue("swap_total_kb", out var rawTotal)
+            || !values.TryGetValue("swap_free_kb", out var rawFree))
+        {
+            return null;
+        }
+
+        if (!ulong.TryParse(rawTotal, out var totalKilobytes))
+        {
+            throw new NodeMonitorParseException("Invalid field in SSH monitor output: swap_total_kb");
+        }
+
+        if (!ulong.TryParse(rawFree, out var freeKilobytes))
+        {
+            throw new NodeMonitorParseException("Invalid field in SSH monitor output: swap_free_kb");
+        }
+
+        if (totalKilobytes == 0)
+        {
+            return null;
+        }
+
+        var totalBytes = totalKilobytes * 1024;
+        var freeBytes = Math.Min(freeKilobytes * 1024, totalBytes);
+        var usedBytes = totalBytes >= freeBytes ? totalBytes - freeBytes : 0;
+        var usagePercent = totalBytes == 0
+            ? 0
+            : (double)usedBytes / totalBytes * 100;
+        return (usedBytes, totalBytes, Clamp(usagePercent));
     }
 
     private static double Clamp(double value) => Math.Clamp(value, 0, 100);
@@ -297,6 +337,8 @@ public sealed class NodeMonitorService : INodeMonitorService
 
     mem_total_kb="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)"
     mem_available_kb="$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo || true)"
+    swap_total_kb="$(awk '/^SwapTotal:/ { print $2; exit }' /proc/meminfo || true)"
+    swap_free_kb="$(awk '/^SwapFree:/ { print $2; exit }' /proc/meminfo || true)"
     disk_total_kb="$(df -kP / | awk 'NR == 2 { print $2; exit }')"
     disk_used_kb="$(df -kP / | awk 'NR == 2 { print $3; exit }')"
 
@@ -308,6 +350,8 @@ public sealed class NodeMonitorService : INodeMonitorService
         END { print free + buffers + cached }
       ' /proc/meminfo)"
     fi
+    swap_total_kb="${swap_total_kb:-0}"
+    swap_free_kb="${swap_free_kb:-0}"
 
     loadavg="$(cut -d ' ' -f 1-3 /proc/loadavg)"
     uptime_seconds="$(cut -d ' ' -f 1 /proc/uptime)"
@@ -340,6 +384,8 @@ public sealed class NodeMonitorService : INodeMonitorService
     printf 'cpu_percent=%s\n' "$cpu_percent"
     printf 'mem_total_kb=%s\n' "$mem_total_kb"
     printf 'mem_available_kb=%s\n' "$mem_available_kb"
+    printf 'swap_total_kb=%s\n' "$swap_total_kb"
+    printf 'swap_free_kb=%s\n' "$swap_free_kb"
     printf 'disk_total_kb=%s\n' "$disk_total_kb"
     printf 'disk_used_kb=%s\n' "$disk_used_kb"
     printf 'loadavg=%s\n' "$loadavg"

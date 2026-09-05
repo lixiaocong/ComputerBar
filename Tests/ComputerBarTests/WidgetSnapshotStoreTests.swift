@@ -15,6 +15,9 @@ final class WidgetSnapshotStoreTests: XCTestCase {
                     memoryUsagePercent: 68.2,
                     memoryUsedBytes: 2_147_483_648,
                     memoryTotalBytes: 4_294_967_296,
+                    virtualMemoryUsagePercent: 25,
+                    virtualMemoryUsedBytes: 1_073_741_824,
+                    virtualMemoryTotalBytes: 4_294_967_296,
                     loadAverages: [0.1, 0.2, 0.3],
                     uptimeSeconds: 3_661,
                     updatedAt: Date(timeIntervalSince1970: 1_718_000_100),
@@ -34,6 +37,9 @@ final class WidgetSnapshotStoreTests: XCTestCase {
         let reloaded = try JSONDecoder.iso8601Decoder.decode(WidgetSnapshot.self, from: Data(contentsOf: tempURL))
 
         XCTAssertEqual(reloaded, snapshot)
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryUsageText, "25%")
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryUsedBytes, 1_073_741_824)
+        XCTAssertEqual(reloaded.selectedHosts.first?.virtualMemoryTotalBytes, 4_294_967_296)
     }
 
     func testStoreChoosesNewestGeneratedSnapshot() {
@@ -55,6 +61,37 @@ final class WidgetSnapshotStoreTests: XCTestCase {
         let selectedSnapshot = WidgetSnapshotStore.newestSnapshot(in: [olderSnapshot, newerSnapshot])
 
         XCTAssertEqual(selectedSnapshot?.primaryAlias, "new")
+    }
+
+    func testHostSnapshotWritesNeverTargetWidgetContainer() {
+        let widgetContainerFragment = "/Library/Containers/\(ComputerBarWidgetConstants.widgetBundleIdentifier)/"
+        let urls = WidgetSnapshotStore.writeSnapshotURLs(
+            fileManager: .default,
+            isWidgetExtension: false
+        )
+
+        XCTAssertFalse(urls.isEmpty)
+        XCTAssertTrue(urls.allSatisfy { !$0.standardizedFileURL.path.contains(widgetContainerFragment) })
+    }
+
+    func testAppGroupIdentifierIsReadFromSignedEntitlements() {
+        XCTAssertEqual(
+            WidgetSnapshotStore.appGroupIdentifier(
+                in: [
+                    "LOCALTEAM.example.unrelated",
+                    "LOCALTEAM.com.computerbar.app.shared"
+                ]
+            ),
+            "LOCALTEAM.com.computerbar.app.shared"
+        )
+    }
+
+    func testAppGroupIdentifierRejectsUnrelatedEntitlements() {
+        XCTAssertNil(
+            WidgetSnapshotStore.appGroupIdentifier(
+                in: ["LOCALTEAM.example.unrelated"]
+            )
+        )
     }
 }
 
